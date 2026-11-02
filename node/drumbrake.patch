@@ -1,0 +1,73 @@
+--- a/configure.py
++++ b/configure.py
+@@ -1223,6 +1223,11 @@
+     dest='v8_with_dchecks',
+     default=False,
+     help='compile V8 with debug checks and runtime debugging features enabled')
++
++parser.add_argument('--v8-wasm-interpreter',
++    action='store_true',
++    default=False,
++    help='enable the jitless V8 WebAssembly interpreter (a-Shell arm64 iOS)')
+ 
+ parser.add_argument('--v8-lite-mode',
+     action='store_true',
+@@ -2233,7 +2238,10 @@
+ def configure_v8(o, configs):
+   set_configuration_variable(configs, 'v8_enable_v8_checks', release=0, debug=1)
+ 
+-  o['variables']['v8_enable_webassembly'] = 0 if options.v8_lite_mode else 1
++  if options.v8_wasm_interpreter and (options.dest_os != 'ios' or options.dest_cpu != 'arm64'):
++    raise Exception('--v8-wasm-interpreter requires arm64 iOS')
++  o['variables']['v8_enable_drumbrake'] = int(options.v8_wasm_interpreter)
++  o['variables']['v8_enable_webassembly'] = int(options.v8_wasm_interpreter or not options.v8_lite_mode)
+   o['variables']['v8_enable_javascript_promise_hooks'] = 1
+   o['variables']['v8_enable_lite_mode'] = 1 if options.v8_lite_mode else 0
+   is_gdbjit_supported_arch = (
+--- a/tools/v8_gypfiles/features.gypi
++++ b/tools/v8_gypfiles/features.gypi
+@@ -328,6 +328,7 @@
+     # executed as standard JavaScript instead.
+     # Sets -dV8_ENABLE_WEBASSEMBLY.
+     'v8_enable_webassembly%': 1,
++    'v8_enable_drumbrake%': 0,
+ 
+     # Enable advanced BigInt algorithms, costing about 10-30 KiB binary size
+     # depending on platform.
+@@ -548,6 +549,9 @@
+       ['v8_enable_etw_stack_walking==1', {
+         'defines': ['V8_ENABLE_ETW_STACK_WALKING',],
+       }],
++      ['v8_enable_drumbrake==1', {
++        'defines': ['V8_ENABLE_DRUMBRAKE', 'V8_DRUMBRAKE_BOUNDS_CHECKS'],
++      }],
+       ['v8_enable_webassembly==1', {
+         'defines': ['V8_ENABLE_WEBASSEMBLY',],
+       }],
+--- a/tools/v8_gypfiles/v8.gyp
++++ b/tools/v8_gypfiles/v8.gyp
+@@ -328,6 +328,9 @@
+             '<(perfetto_gyp_file):perfetto_sdk',
+           ],
+         }],
++        ['v8_enable_drumbrake==1 and v8_target_arch=="arm64"', {
++          'sources': ['<(V8_ROOT)/src/wasm/interpreter/arm64/interpreter-builtins-arm64.cc'],
++        }],
+         ['v8_enable_webassembly==1', {
+           'sources': [
+             '<!@pymod_do_main(GN-scraper "<(V8_ROOT)/BUILD.gn"  "\\"v8_initializers.*?v8_enable_webassembly.*?sources \\+= ")',
+@@ -1211,6 +1214,14 @@
+                 '<!@pymod_do_main(GN-scraper "<(V8_ROOT)/BUILD.gn"  "\\"v8_base_without_compiler.*?v8_enable_maglev.*?v8_current_cpu == \\"riscv64\\".*?sources \\+= ")',
+               ],
+             }],
++          ],
++        }],
++        ['v8_enable_drumbrake==1', {
++          'sources': [
++            '<(V8_ROOT)/src/wasm/interpreter/wasm-interpreter-objects.cc',
++            '<(V8_ROOT)/src/wasm/interpreter/wasm-interpreter-runtime.cc',
++            '<(V8_ROOT)/src/wasm/interpreter/wasm-interpreter-simd.cc',
++            '<(V8_ROOT)/src/wasm/interpreter/wasm-interpreter.cc',
+           ],
+         }],
+         ['v8_enable_webassembly==1', {

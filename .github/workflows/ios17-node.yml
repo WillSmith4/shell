@@ -1,0 +1,53 @@
+name: iOS Node with WebAssembly interpreter
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ios17-ai-clis]
+    paths:
+      - 'node/**'
+      - 'ci/ai-clis.sh'
+      - '.github/workflows/ios17-node.yml'
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  node:
+    runs-on: macos-26
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [device, simulator]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Restore native build cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .build/ai/node-${{ matrix.platform }}
+          key: node-drumbrake-${{ matrix.platform }}-${{ github.sha }}
+          restore-keys: node-drumbrake-${{ matrix.platform }}-
+      - name: Build jitless Node with DrumBrake
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: bash ci/ai-clis.sh node "$PLATFORM"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: node-${{ matrix.platform }}
+          path: .build/dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: node-${{ matrix.platform }}-logs
+          path: .build/ai/**/*.log
+          if-no-files-found: ignore
+      - name: Retain compiler cache
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: .build/ai/node-${{ matrix.platform }}
+          key: node-drumbrake-${{ matrix.platform }}-${{ github.sha }}
