@@ -135,7 +135,7 @@ apply() (
       [[ $(shasum -a 256 "$cache/pinned.tar.gz" | awk '{print $1}') == "$sha" ]] || die "$cache/pinned.tar.gz does not match the pinned checksum; delete it and rerun."
       # The node and device stages share this tree. Extract and patch it once per patch set;
       # any other state (older patches, interrupted run) is discarded with its build output.
-      local node_patches="ios-platform host-tools command-options command-errors command-environment child-process drumbrake"
+      local node_patches="ios-platform host-tools command-options command-errors command-environment child-process drumbrake drumbrake-segments"
       local node_stamp command_patch
       node_stamp=$(
         {
@@ -166,13 +166,13 @@ apply() (
         export GYP_DEFINES="target_arch=$cpu host_os=mac target_os=ios v8_enable_turbofan=0 v8_enable_sparkplug=0 v8_enable_maglev=0 v8_enable_drumbrake=1"
         # GYP's lite flag does not itself disable compiler source sets in this branch.
         local iossim=true
-        local configure_args=(--dest-os=ios --dest-cpu="$cpu" --with-intl=small-icu --cross-compiling --openssl-no-asm "--v8-options=--jitless --wasm-jitless" --v8-lite-mode --v8-wasm-interpreter --without-node-code-cache --without-node-snapshot --v8-disable-temporal-support --v8-disable-maglev)
+        local configure_args=(--dest-os=ios --dest-cpu="$cpu" --with-intl=small-icu --cross-compiling --openssl-no-asm "--v8-options=--jitless --wasm-jitless" --v8-lite-mode --v8-wasm-interpreter --experimental-enable-pointer-compression --without-node-code-cache --without-node-snapshot --v8-disable-temporal-support --v8-disable-maglev)
         if [[ $stage == device ]]; then
           iossim=false
         else
           configure_args+=(--ios-simulator)
         fi
-        if [[ ! -f config.gypi ]] || ! python3 -c 'import json,sys; v=json.loads(open("config.gypi").read().split("\n",1)[1])["variables"]; sys.exit(not (v["iossim"] == sys.argv[1] and v["target_arch"] == sys.argv[2] and v["icu_small"] == "true" and v["v8_enable_lite_mode"] == 1 and v["v8_enable_webassembly"] == 1 and v["v8_enable_drumbrake"] == 1 and v["v8_enable_pointer_compression"] == 0 and v["v8_enable_maglev"] == 0 and v["node_v8_options"] == "--jitless --wasm-jitless" and v["openssl_version"] >= 0x3000000f))' "$iossim" "$cpu" || [[ tools/v8_gypfiles/v8.gyp -nt out/Makefile || tools/v8_gypfiles/features.gypi -nt out/Makefile || tools/gyp/pylib/gyp/generator/make.py -nt out/Makefile || common.gypi -nt out/Makefile || $here/build.sh -nt config.gypi ]]; then
+        if [[ ! -f config.gypi ]] || ! python3 -c 'import json,sys; v=json.loads(open("config.gypi").read().split("\n",1)[1])["variables"]; sys.exit(not (v["iossim"] == sys.argv[1] and v["target_arch"] == sys.argv[2] and v["icu_small"] == "true" and v["v8_enable_lite_mode"] == 1 and v["v8_enable_webassembly"] == 1 and v["v8_enable_drumbrake"] == 1 and v["v8_enable_pointer_compression"] == 1 and v["v8_enable_maglev"] == 0 and v["node_v8_options"] == "--jitless --wasm-jitless" and v["openssl_version"] >= 0x3000000f))' "$iossim" "$cpu" || [[ tools/v8_gypfiles/v8.gyp -nt out/Makefile || tools/v8_gypfiles/features.gypi -nt out/Makefile || tools/gyp/pylib/gyp/generator/make.py -nt out/Makefile || common.gypi -nt out/Makefile || $here/build.sh -nt config.gypi ]]; then
           logged "$cache/configure.log" ./configure "${configure_args[@]}"
         fi
         # A failed probe leaves openssl_version 0 (only a warning); engine.cc then builds without engine compat and make dies in ncrypto.
