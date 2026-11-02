@@ -36,6 +36,7 @@ std::atomic<int> next_id{1000000};
 struct Child {
   uv_async_t completion{};
   uv_process_t* process;
+  uv_loop_t* loop = nullptr;
   std::thread worker;
   FILE* streams[3]{};
   void* registration = nullptr;
@@ -63,7 +64,7 @@ std::string quote(const std::string& value) {
 
 void completed(uv_async_t* handle) {
   auto* child = static_cast<Child*>(handle->data);
-  child->worker.join();
+  if (child->worker.joinable()) child->worker.join();
   {
     std::lock_guard<std::mutex> lock(children_mutex);
     for (auto it = children.begin(); it != children.end(); ++it)
@@ -110,6 +111,7 @@ extern "C" int AShellUVSpawn(uv_loop_t* loop, uv_process_t* process,
   if (!gemini_tool && child_active.exchange(true)) return UV_EBUSY;
   auto child = std::make_unique<Child>();
   child->process = process;
+  child->loop = loop;
   if (const auto* context = static_cast<const char*>(ios_getContext()))
     child->context = context;
   child->cwd = options->cwd ? options->cwd : "";
@@ -270,4 +272,25 @@ extern "C" int AShellUVKill(uv_process_t* process, int signal) {
   }
   // Ordinary Node children retain their existing behavior. Never kill the app PID.
   return UV_ENOSYS;
+}
+
+// An explicit JS exit or a host interrupt can stop the event loop while tools
+// still own native streams. Drain only this Environment's Gemini children before
+// CommonEnvironmentSetup closes the loop and releases its V8 callbacks.
+extern "C" void AShellUVDrainTools(uv_loop_t* loop) {
+  std::vector<Child*> pending;
+  {
+    std::lock_guard<std::mutex> lock(children_mutex);
+    for (auto* child : children) if (child->loop == loop && child->tool) {
+      codex_ios_tool_cancel(child->tool);
+      child->process = nullptr; // FreeEnvironment closes the Node process handle.
+      pending.push_back(child);
+    }
+  }
+  for (auto* child : pending) if (child->worker.joinable()) child->worker.join();
+  // Completion callbacks remove the registrations, then close their async handles.
+  if (!pending.empty()) {
+    uv_run(loop, UV_RUN_NOWAIT);
+    uv_run(loop, UV_RUN_NOWAIT);
+  }
 }

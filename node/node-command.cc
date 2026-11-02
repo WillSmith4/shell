@@ -25,6 +25,7 @@ void ios_closetty(void);
 #include <unistd.h>
 #include <vector>
 #include "uv.h"
+extern "C" void AShellUVDrainTools(uv_loop_t*);
 
 namespace node {
 void AShellSetErrorStream(FILE*);
@@ -395,6 +396,7 @@ extern "C" int node_ios_main(int argc, char** argv) {
       cancellation.interrupted = interrupt.interrupted;
       if (interrupt.terminated) rc = 130;
       node::Stop(setup->env());
+      AShellUVDrainTools(setup->event_loop());
       interrupt.process.Reset();
       uv_close(reinterpret_cast<uv_handle_t*>(interrupt.notification),
                [](uv_handle_t* handle) { delete reinterpret_cast<uv_async_t*>(handle); });
