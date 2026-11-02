@@ -12,7 +12,7 @@ python3 - "$app" "$output" <<'PY'
 import hashlib, json, pathlib, plistlib, re, shutil, sys, urllib.request, zipfile
 app, output = map(pathlib.Path, sys.argv[1:])
 manifest = (app / 'xcfs/Package.swift').read_text()
-for product in ('dash', 'text', 'shell'):
+for product in ('text', 'shell'):
     url, checksum = re.search(r'name: "'+product+r'",\s+url: "([^"]+)",\s+checksum: "([^"]+)"', manifest).groups()
     archive = output / 'deps' / (product+'.zip')
     urllib.request.urlretrieve(url, archive)
@@ -33,6 +33,7 @@ for command in ('node','dash','sleep','echo','cat','printf'):
 with (output/'commandDictionary.plist').open('wb') as target:
     plistlib.dump(selected,target)
 PY
+bash "$app/ci/build-ai-dash.sh" simulator "$output/Frameworks" "$output/dash-build"
 python3 "$app/gemini/build.py"
 ditto "$app/Resources/gemini" "$output/gemini"
 cp "$app/node/tests/wasm.cjs" "$output/"
