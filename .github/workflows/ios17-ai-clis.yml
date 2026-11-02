@@ -5,8 +5,6 @@ on:
     branches: [codex/ios17-ai-clis]
     paths:
       - 'codex/**'
-      - 'node/**'
-      - 'gemini/**'
       - 'ci/ai-clis.sh'
       - '.github/workflows/ios17-ai-clis.yml'
 permissions:
