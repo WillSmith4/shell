@@ -1,0 +1,67 @@
+name: Package full unsigned iOS 17 app
+on:
+  workflow_dispatch:
+    inputs:
+      codex_run:
+        description: Successful Codex framework workflow run ID
+        required: true
+      node_run:
+        description: Successful Node framework workflow run ID
+        required: true
+      dependencies_url:
+        description: URL of the matching full-app dependency tar.gz, rooted at the checkout
+        required: true
+      dependencies_sha256:
+        description: SHA-256 of the full-app dependency archive
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  package:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: git submodule update --init SwiftTerm
+      - uses: actions/download-artifact@v7
+        with:
+          run-id: ${{ inputs.codex_run }}
+          github-token: ${{ github.token }}
+          pattern: codex-*
+          merge-multiple: true
+          path: .build/ai-artifacts
+      - uses: actions/download-artifact@v7
+        with:
+          run-id: ${{ inputs.node_run }}
+          github-token: ${{ github.token }}
+          pattern: node-*
+          merge-multiple: true
+          path: .build/ai-artifacts
+      - name: Install matching full-app dependencies
+        env:
+          DEPENDENCIES_URL: ${{ inputs.dependencies_url }}
+          DEPENDENCIES_SHA256: ${{ inputs.dependencies_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPENDENCIES_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]
+          curl --fail --location --retry 3 "$DEPENDENCIES_URL" -o "$RUNNER_TEMP/dependencies.tar.gz"
+          echo "$DEPENDENCIES_SHA256  $RUNNER_TEMP/dependencies.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/dependencies.tar.gz"
+      - name: Build and audit unsigned full app
+        run: bash ci/package-unsigned.sh "$PWD/.build/ai-artifacts"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: a-Shell-ios17-unsigned
+          path: |
+            .build/unsigned/*.ipa
+            .build/unsigned/SHA256SUMS
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: full-app-build-log
+          path: .build/unsigned/build.log
+          if-no-files-found: ignore

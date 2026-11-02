@@ -32,6 +32,10 @@ def adapt(package):
   }''', path)
         text = replace_once(text, 'detached: !isWindows3 && !isBun,',
                             'detached: process.platform !== "ios" && !isWindows3 && !isBun,', path)
+        text = replace_once(text, '      env: sandboxedCommand.env,', '''      // The adapter marker is local metadata, not a credential or shell setting.
+      env: process.platform === "ios"
+        ? { ...sandboxedCommand.env, ASHELL_GEMINI_TOOLS: "1" }
+        : sandboxedCommand.env,''', path)
         # These IDs belong to the native adapter, never to OS process groups.
         text = replace_once(text, 'async function killProcessGroup(options) {', '''async function killProcessGroup(options) {
   if (process.platform === "ios") {
@@ -78,6 +82,7 @@ def main():
         package = stage / 'package'
         adapt(package)
         shutil.copy2(ROOT / 'gemini' / 'launcher.mjs', package / 'launcher.mjs')
+        shutil.copytree(ROOT / 'gemini' / 'tests', package / 'tests')
         (package / 'ASHELL-BUILD.txt').write_text(
             f'Gemini CLI {VERSION}\nUpstream archive SHA-256: {SHA256}\n', encoding='utf-8')
         if OUTPUT.exists():
