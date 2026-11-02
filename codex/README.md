@@ -1,6 +1,6 @@
 # Native Codex
 
-Embeds OpenAI Codex CLI 0.160.0 (source tag `rust-v0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc`) as `codex` in the full app. The app embeds, but does not link against, `codex.xcframework`; ios_system loads it when the command runs. The framework targets iOS 26.2. On older iOS, the command returns status 1 and prints `codex requires iOS 26.2 or later.` Mini has no Codex entry. Extensions do not embed the framework or list Codex as a local command.
+Embeds OpenAI Codex CLI 0.160.0 (source tag `rust-v0.160.0`, commit `a956835d020762cb2b570053af06f643a11c0ecc`) as `codex` in the full app. The app embeds, but does not link against, `codex.xcframework`; ios_system loads it when the command runs. The framework now targets iOS 17.0, including iPadOS 17.5.1. On older iOS, the command returns status 1 and prints `codex requires iOS 17.0 or later.` This is a build target, not a claim of completed physical-device qualification. Mini has no Codex entry. Extensions do not embed the framework or list Codex as a local command.
 
 ## Build
 
@@ -23,6 +23,14 @@ Shell tools run embedded Dash through fresh ios_system sessions, with copied arg
 An explicit nonempty `CODEX_HOME` takes precedence. Otherwise state lives in `$GROUP/Library/codex`; first use can atomically migrate the older `$HOME/Library/codex` directory while retaining the original for rollback. The app performs migration without exposing credentials. Refreshes use a cross-process file lock, and saved sessions can relocate after application-container UUID changes. Authentication belongs to the user: run `codex login --device-auth` if needed.
 
 ## Verification
+
+Forced host interruption uses a cooperative request while pthread cancellation
+is disabled around the Rust invocation. The runtime must finish and its stderr
+guard must drop before the native host restores streams. The adapter must not
+simply clear an occupied stderr slot while old workers can still use it.
+`tests/interrupt.sh` exercises a real `ios_kill` during `codex exec` against a
+local HTTP fixture, then checks three same-process version/help invocations.
+No login credentials or paid model requests are used.
 
 Run CLI checks from a disposable app directory through `dash codex-terminal.sh`, after copying `codex/tests/terminal.sh` into that directory. They check version, help, parser errors, status 2, repeated invocation and the next shell command.
 

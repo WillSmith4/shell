@@ -1,0 +1,40 @@
+name: Codex interruption regression on Simulator
+on:
+  workflow_dispatch:
+    inputs:
+      codex_run:
+        description: Successful Codex framework workflow run ID
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  interrupt:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          run-id: ${{ inputs.codex_run }}
+          github-token: ${{ github.token }}
+          name: codex-simulator
+          path: .build/test-input
+      - name: Boot Simulator and run same-process reentry regression
+        run: |
+          set -euo pipefail
+          mkdir -p .build/test-frameworks
+          tar -xzf .build/test-input/codex-simulator.tar.gz -C .build/test-frameworks
+          xcrun simctl list devices available -j > .build/devices.json
+          device=$(python3 -c 'import json; d=json.load(open(".build/devices.json")); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if x["isAvailable"]))')
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b
+          bash codex/tests/interrupt.sh "$device" "$PWD/.build/test-frameworks/simulator" "$PWD/.build/interrupt-result"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: codex-interruption-test
+          path: .build/interrupt-result/*.txt
+          if-no-files-found: ignore
