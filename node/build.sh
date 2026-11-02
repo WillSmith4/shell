@@ -249,7 +249,13 @@ PYABI
             -isystem "$source/src" -isystem "$source/deps/v8/include" -isystem "$source/deps/uv/include" \
             -isystem "$ios_system/$slice/ios_system.framework/Headers" -Wall -Wextra -Werror -c "$here/node-command.cc" -o "$cache/node-command-$platform.o"
         fi
-        local link_inputs=("$cache/node-command-$platform.o" "$cache/child-process-$platform.o")
+        if [[ ! -f $cache/tool-runner-$platform.o || $app/codex/command.m -nt $cache/tool-runner-$platform.o ]]; then
+          xcrun --sdk "$sdk" clang -Oz -target "$target" \
+            -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" \
+            -I "$ios_system/$slice/ios_system.framework/Headers" -Wall -Wextra -Werror \
+            -DASHELL_TOOL_TRANSPORT_ONLY -c "$app/codex/command.m" -o "$cache/tool-runner-$platform.o"
+        fi
+        local link_inputs=("$cache/node-command-$platform.o" "$cache/child-process-$platform.o" "$cache/tool-runner-$platform.o")
         for name in $libraries; do
           [[ -f $cache/$platform-libs/lib$name.a ]]
           link_inputs+=("$cache/$platform-libs/lib$name.a")

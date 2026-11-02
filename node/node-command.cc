@@ -5,10 +5,13 @@
 extern "C" {
 const char* ios_progname(void);
 const void* ios_getContext(void);
+int ios_opentty(void);
+void ios_closetty(void);
 #include "ios_system.h"
 }
 
 #include <cstdio>
+#include <cerrno>
 #include <atomic>
 #include <csignal>
 #include <cstring>
@@ -18,6 +21,7 @@ const void* ios_getContext(void);
 #include <mutex>
 #include <pthread.h>
 #include <string>
+#include <termios.h>
 #include <unistd.h>
 #include <vector>
 #include "uv.h"
@@ -48,6 +52,57 @@ struct InterruptState {
   std::atomic<bool> terminated{false};
   std::atomic<unsigned int> pending{0};
 };
+
+struct TerminalScope {
+  int input = -1;
+  int prior_pager = 0;
+  int prior_interactive = 0;
+  bool has_mode = false;
+  bool raw = false;
+  struct termios mode{};
+  const void* session = nullptr;
+  TerminalScope(bool requested) {
+    if (!requested || !ios_isatty(0) || !ios_isatty(1) || ios_gettty() < 0) return;
+    session = ios_getContext();
+    prior_pager = ios_activePager();
+    prior_interactive = ios_storeInteractive();
+    input = ios_opentty();
+    if (input >= 0) has_mode = tcgetattr(input, &mode) == 0;
+  }
+  int set_raw(bool enabled) {
+    if (input < 0) return ENOTTY;
+    if (has_mode) {
+      auto next = mode;
+      if (enabled) cfmakeraw(&next);
+      if (tcsetattr(input, TCSANOW, &next)) return errno;
+    }
+    if (enabled || prior_interactive) ios_startInteractive();
+    else ios_stopInteractive();
+    raw = enabled;
+    return 0;
+  }
+  ~TerminalScope() {
+    if (input < 0) return;
+    set_raw(false);
+    if (!prior_pager) ios_closetty();
+  }
+};
+
+void TerminalMode(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  auto* terminal = static_cast<TerminalScope*>(info.Data().As<v8::External>()->Value());
+  info.GetReturnValue().Set(terminal->set_raw(info[0]->BooleanValue(info.GetIsolate())));
+}
+
+void TerminalSize(const v8::FunctionCallbackInfo<v8::Value>& info) {
+  auto* terminal = static_cast<TerminalScope*>(info.Data().As<v8::External>()->Value());
+  int columns = 80, rows = 24;
+  ios_getWindowSize(&columns, &rows, terminal->session);
+  auto size = v8::Array::New(info.GetIsolate(), 2);
+  auto context = info.GetIsolate()->GetCurrentContext();
+  size->Set(context, 0, v8::Integer::New(info.GetIsolate(), columns)).Check();
+  size->Set(context, 1, v8::Integer::New(info.GetIsolate(), rows)).Check();
+  info.GetReturnValue().Set(size);
+}
 std::mutex interrupt_mutex;
 std::multimap<std::string, InterruptState*> command_interrupts;
 
@@ -161,12 +216,13 @@ extern "C" int node_ios_main(int argc, char** argv) {
   // a-Shell commands receive pipes rather than a kernel TTY. Select Node's
   // existing REPL explicitly for the no-argument command.
   if (argc == 1) args.emplace_back("-i");
-
-
+  const bool gemini = argc > 1 && std::string(argv[1]).ends_with("/gemini/launcher.mjs");
+  TerminalScope terminal(gemini);
   FILE* streams[] = {thread_stdin, thread_stdout, thread_stderr};
   int fds[] = {-1, -1, -1};
   for (int i = 0; i < 3; ++i) {
-    if (!streams[i] || (fds[i] = dup(fileno(streams[i]))) < 0) {
+    const int input = i == 0 && terminal.input >= 0 ? terminal.input : (streams[i] ? fileno(streams[i]) : -1);
+    if (input < 0 || (fds[i] = dup(input)) < 0) {
       fprintf(thread_stderr, "Cannot duplicate Node command streams.\n");
       for (int fd : fds) if (fd >= 0) close(fd);
       return 1;
@@ -221,6 +277,7 @@ extern "C" int node_ios_main(int argc, char** argv) {
           setup->env(), node::StartExecutionCallback{},
           [command_env = setup->env(), output_fd = fds[1],
            error_fd = fds[2], command_interrupt = &interrupt,
+           command_terminal = &terminal,
            interactive = argc == 1](node::Environment* env, v8::Local<v8::Value> process,
               v8::Local<v8::Value> require) {
             // Workers inherit this callback but keep their stock message-port
@@ -231,7 +288,7 @@ extern "C" int node_ios_main(int argc, char** argv) {
             // Use owned command descriptors, never process-wide fd 0/1/2.
             command_interrupt->process.Reset(isolate, process.As<v8::Object>());
             std::string source =
-                "(function(process, require, environment, appdir, updateSignal, inputDescriptor) {"
+                "(function(process, require, environment, appdir, updateSignal, inputDescriptor, terminalMode, terminalSize, isTerminal) {"
                 "const fs = require('fs');"
                 "for (const key of Object.keys(process.env)) delete process.env[key];"
                 "Object.assign(process.env, environment);"
@@ -260,6 +317,32 @@ extern "C" int node_ios_main(int argc, char** argv) {
                 "fs.createReadStream(null, {fd, autoClose:true});"
                 "Object.defineProperty(process, 'stdin', {value:stream, configurable:true});"
                 "return stream; }} });";
+            source +=
+                "if (isTerminal) {"
+                "const readline = require('readline');"
+                "for (const stream of [process.stdout, process.stderr]) {"
+                "stream.isTTY = true;"
+                "[stream.columns, stream.rows] = terminalSize();"
+                "stream.getColorDepth = () => 24;"
+                "stream.hasColors = (count = 16) => count <= 16777216;"
+                "stream.getWindowSize = () => terminalSize();"
+                "stream.cursorTo = (...args) => readline.cursorTo(stream, ...args);"
+                "stream.moveCursor = (...args) => readline.moveCursor(stream, ...args);"
+                "stream.clearLine = (...args) => readline.clearLine(stream, ...args);"
+                "stream.clearScreenDown = (...args) => readline.clearScreenDown(stream, ...args);"
+                "}"
+                "const input = process.stdin; input.isTTY = true; input.isRaw = false;"
+                "input.setRawMode = (enabled) => {"
+                "const error = terminalMode(!!enabled);"
+                "if (error) throw new Error('Cannot change a-Shell terminal mode: ' + error);"
+                "input.isRaw = !!enabled; return input; };"
+                "const sizeTimer = setInterval(() => {"
+                "const [columns, rows] = terminalSize();"
+                "for (const stream of [process.stdout, process.stderr]) {"
+                "if (stream.columns !== columns || stream.rows !== rows) {"
+                "stream.columns = columns; stream.rows = rows; stream.emit('resize'); }"
+                "}}, 100); sizeTimer.unref();"
+                "}";
             if (interactive) {
               source +=
                   "const cliRepl = require('internal/repl');"
@@ -290,10 +373,15 @@ extern "C" int node_ios_main(int argc, char** argv) {
                   UpdateSignalListener, v8::External::New(isolate, command_interrupt)).ToLocalChecked();
               auto input_descriptor = v8::Function::New(context,
                   DuplicateInput, v8::External::New(isolate, command_interrupt)).ToLocalChecked();
-              v8::Local<v8::Value> values[] = {process, require, environment, appdir, update_signal, input_descriptor};
+              auto terminal_mode = v8::Function::New(context,
+                  TerminalMode, v8::External::New(isolate, command_terminal)).ToLocalChecked();
+              auto terminal_size = v8::Function::New(context,
+                  TerminalSize, v8::External::New(isolate, command_terminal)).ToLocalChecked();
+              v8::Local<v8::Value> values[] = {process, require, environment, appdir, update_signal, input_descriptor,
+                  terminal_mode, terminal_size, v8::Boolean::New(isolate, command_terminal->input >= 0)};
               v8::Local<v8::Value> ignored;
               if (!fn.As<v8::Function>()->Call(context, v8::Undefined(isolate),
-                                               6, values).ToLocal(&ignored)) return;
+                                               9, values).ToLocal(&ignored)) return;
             }
           });
       if (!loaded.IsEmpty()) {

@@ -90,5 +90,6 @@ gitoxide/gitoxide.xcframework/
 xcfs/node.xcframework/
 Resources/npm/
 Resources/node-fetch/
+Resources/gemini/
 /fzf/fzf.xcframework/
 /navi/navi.xcframework/

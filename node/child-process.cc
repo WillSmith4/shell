@@ -8,9 +8,15 @@ int ashell_register_owned_streams(FILE*, FILE*, FILE*, void**);
 void ashell_wait_owned_streams(void*);
 void ashell_unregister_owned_streams(void**);
 void AShellUVExit(uv_process_t*, int);
+int codex_ios_tool_start(const char*, const char* const[], const char* const[],
+                         int, int, int, void**);
+int codex_ios_tool_wait(void*, int*);
+int codex_ios_tool_cancel(void*);
+int codex_ios_tool_release(void**);
 }
 #include <atomic>
 #include <cerrno>
+#include <csignal>
 #include <fcntl.h>
 #include <memory>
 #include <mutex>
@@ -39,7 +45,9 @@ struct Child {
   std::vector<std::string> env;
   int status = 1;
   int id = 0;
+  void* tool = nullptr;
   ~Child() {
+    if (tool) codex_ios_tool_release(&tool);
     ashell_unregister_owned_streams(&registration);
     for (auto* stream : streams) if (stream) fclose(stream);
   }
@@ -75,6 +83,9 @@ extern "C" int AShellUVSpawn(uv_loop_t* loop, uv_process_t* process,
     return UV_ENOSYS;
   if (options->stdio_count > 3) return UV_ENOSYS; // fork/IPC is not a command.
   std::string file = options->file;
+  bool gemini_tool = false;
+  if (options->env) for (char** p = options->env; *p; ++p)
+    if (std::string(*p) == "ASHELL_GEMINI_TOOLS=1") gemini_tool = true;
   std::string name = file.substr(file.find_last_of('/') + 1);
   const bool shell = name == "sh" || name == "dash";
   std::string interpreter;
@@ -96,13 +107,17 @@ extern "C" int AShellUVSpawn(uv_loop_t* loop, uv_process_t* process,
     if (stat(options->cwd, &info)) return -errno;
     if (!S_ISDIR(info.st_mode)) return UV_ENOTDIR;
   }
-  if (child_active.exchange(true)) return UV_EBUSY;
+  if (!gemini_tool && child_active.exchange(true)) return UV_EBUSY;
   auto child = std::make_unique<Child>();
   child->process = process;
   if (const auto* context = static_cast<const char*>(ios_getContext()))
     child->context = context;
   child->cwd = options->cwd ? options->cwd : "";
-  if (options->env) for (char** p = options->env; *p; ++p) child->env.emplace_back(*p);
+  if (options->env) for (char** p = options->env; *p; ++p) {
+    // Nested Node commands use their normal adapter: the outer Gemini tool
+    // already owns the shared transport's cwd slot until its descendants exit.
+    if (!std::string(*p).starts_with("ASHELL_GEMINI_TOOLS=")) child->env.emplace_back(*p);
+  }
   // Shell=true arrives as /bin/sh -c. Use the app's actual Dash command.
   child->command = !interpreter.empty() ? interpreter + " " + quote(file) : (shell ? "dash" : name);
   for (char** p = options->args + 1; *p; ++p) child->command += " " + quote(*p);
@@ -138,23 +153,49 @@ extern "C" int AShellUVSpawn(uv_loop_t* loop, uv_process_t* process,
     child->streams[i] = fdopen(fd, i == 0 ? "r" : "w");
     if (!child->streams[i]) { error = -errno; close(fd); break; }
   }
-  if (error) { child_active = false; return error; }
-  error = ashell_register_owned_streams(child->streams[0], child->streams[1],
-                                       child->streams[2], &child->registration);
-  if (error) { child_active = false; return -error; }
+  if (error) { if (!gemini_tool) child_active = false; return error; }
+  if (!gemini_tool) {
+    error = ashell_register_owned_streams(child->streams[0], child->streams[1],
+                                         child->streams[2], &child->registration);
+    if (error) { child_active = false; return -error; }
+  }
   error = uv_async_init(loop, &child->completion, completed);
-  if (error) { child_active = false; return error; }
+  if (error) { if (!gemini_tool) child_active = false; return error; }
   child->completion.data = child.get();
   process->pid = next_id++;
   child->id = process->pid;
   process->exit_cb = options->exit_cb;
   auto* owned = child.release();
+  if (gemini_tool) {
+    const char* argv[] = {"dash", "-c", owned->command.c_str(), nullptr};
+    std::vector<const char*> env;
+    for (const auto& item : owned->env) env.push_back(item.c_str());
+    env.push_back(nullptr);
+    // Capture cwd before another queued command can change it.
+    const char* cwd = options->cwd ? options->cwd : NSFileManager.defaultManager.currentDirectoryPath.UTF8String;
+    error = codex_ios_tool_start(cwd, argv, env.data(), fileno(owned->streams[0]),
+                                fileno(owned->streams[1]), fileno(owned->streams[2]), &owned->tool);
+    if (error) {
+      uv_close(reinterpret_cast<uv_handle_t*>(&owned->completion), [](uv_handle_t* h) {
+        delete static_cast<Child*>(h->data);
+      });
+      return -error;
+    }
+    // The shared runner owns duplicates; libuv owns the other pipe ends.
+    for (auto*& stream : owned->streams) { fclose(stream); stream = nullptr; }
+  }
   {
     std::lock_guard<std::mutex> lock(children_mutex);
     children.push_back(owned);
   }
   try {
     owned->worker = std::thread([owned] {
+      if (owned->tool) {
+        int error = codex_ios_tool_wait(owned->tool, &owned->status);
+        if (error) owned->status = 1;
+        uv_async_send(&owned->completion);
+        return;
+      }
       @autoreleasepool {
         int cancellation;
         pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cancellation);
@@ -199,7 +240,10 @@ extern "C" int AShellUVSpawn(uv_loop_t* loop, uv_process_t* process,
       for (auto it = children.begin(); it != children.end(); ++it)
         if (*it == owned) { children.erase(it); break; }
     }
-    child_active = false;
+    if (owned->tool) {
+      codex_ios_tool_cancel(owned->tool);
+      codex_ios_tool_wait(owned->tool, &owned->status);
+    } else child_active = false;
     uv_close(reinterpret_cast<uv_handle_t*>(&owned->completion), [](uv_handle_t* h) {
       delete static_cast<Child*>(h->data);
     });
@@ -210,10 +254,20 @@ extern "C" int AShellUVSpawn(uv_loop_t* loop, uv_process_t* process,
 
 extern "C" void AShellUVClose(uv_process_t* process) {
   std::lock_guard<std::mutex> lock(children_mutex);
-  for (auto* child : children) if (child->process == process) child->process = nullptr;
+  for (auto* child : children) if (child->process == process) {
+    if (child->tool) codex_ios_tool_cancel(child->tool);
+    child->process = nullptr;
+  }
 }
 
-extern "C" int AShellUVKill(uv_process_t*, int) {
-  // pthread_cancel is unsafe for embedded interpreters; never kill the app PID.
+extern "C" int AShellUVKill(uv_process_t* process, int signal) {
+  std::lock_guard<std::mutex> lock(children_mutex);
+  for (auto* child : children) if (child->process == process && child->tool) {
+    if (signal == 0) return 0;
+    if (signal != SIGINT && signal != SIGTERM && signal != SIGKILL) return UV_ENOSYS;
+    int error = codex_ios_tool_cancel(child->tool);
+    return error ? -error : 0;
+  }
+  // Ordinary Node children retain their existing behavior. Never kill the app PID.
   return UV_ENOSYS;
 }

@@ -15,6 +15,7 @@
 #import <UIKit/UIKit.h>
 #include "ios_system.h"
 
+#ifndef ASHELL_TOOL_TRANSPORT_ONLY
 extern int codex_embedded_run(int argc, const char *const *argv);
 extern int codex_embedded_uses_tui(int argc, const char *const *argv);
 extern int codex_ios_prepare_home(const char *const env[]);
@@ -392,8 +393,12 @@ restore:
         pthread_setcancelstate(state.prior_cancel_state, NULL);
     return state.status;
 }
+#endif
 
 // Tool calls own a fresh ios_system session. They must not reuse the caller's terminal session.
+// Node compiles this same transport for Gemini; each framework hides its symbols.
+static char **copy_tool_strings(const char *const *values);
+static void free_tool_strings(char **values);
 extern int ios_execve(const char *, char *const [], char *[]);
 extern int ashell_register_owned_streams(FILE *, FILE *, FILE *, void **);
 extern void ashell_wait_owned_streams(void *);
