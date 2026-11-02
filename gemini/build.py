@@ -32,6 +32,9 @@ def adapt(package):
   }''', path)
         text = replace_once(text, 'detached: !isWindows3 && !isBun,',
                             'detached: process.platform !== "ios" && !isWindows3 && !isBun,', path)
+        text = replace_once(text, 'function ensurePromptvarsDisabled(command, shell) {', '''function ensurePromptvarsDisabled(command, shell) {
+  // Dash has neither Bash promptvars nor shopt.
+  if (process.platform === "ios") return command;''', path)
         text = replace_once(text, '      env: sandboxedCommand.env,', '''      // The adapter marker is local metadata, not a credential or shell setting.
       env: process.platform === "ios"
         ? { ...sandboxedCommand.env, ASHELL_GEMINI_TOOLS: "1" }

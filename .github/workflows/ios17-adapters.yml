@@ -1,0 +1,17 @@
+name: AI native adapter SDK checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ios17-ai-clis]
+    paths: ['ci/check-ai-adapters.sh', '.github/workflows/ios17-adapters.yml']
+permissions:
+  contents: read
+jobs:
+  syntax:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: bash ci/check-ai-adapters.sh
