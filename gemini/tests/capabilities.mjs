@@ -16,7 +16,7 @@ const { ShellExecutionService } = core;
 const controller = new AbortController();
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 async function shell(command, expected = 0, signal = controller.signal) {
-  const execution = await ShellExecutionService.execute(command, root, () => {}, signal, false, {});
+  const execution = await ShellExecutionService.execute(command, root, () => {}, signal, false, {sanitizationConfig:{}});
   const result = await execution.result;
   assert.equal(result.exitCode, expected, JSON.stringify(result));
   assert.equal(result.error, null, JSON.stringify(result));
@@ -44,7 +44,7 @@ try {
   const abort = new AbortController();
   const running = ShellExecutionService.execute('printf READY; sleep 30', root, event => {
     if (event.type === 'data' && event.chunk.includes('READY')) abort.abort();
-  }, abort.signal, false, {});
+  }, abort.signal, false, {sanitizationConfig:{}});
   const interrupted = await (await running).result;
   assert.equal(interrupted.aborted, true);
   assert.equal(interrupted.exitCode, 130);

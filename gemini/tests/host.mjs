@@ -15,7 +15,7 @@ try {
   const platform = Object.getOwnPropertyDescriptor(process, 'platform');
   try {
     Object.defineProperty(process, 'platform', {...platform, value: 'ios'});
-    const prepared = await core.ShellExecutionService.prepareExecution('printf ok', root, {}, false, false);
+    const prepared = await core.ShellExecutionService.prepareExecution('printf ok', root, {sanitizationConfig:{}}, false, false);
     assert.match(prepared.program, /(?:^|[/\\])dash(?:\.exe)?$/);
     assert.deepEqual(prepared.args, ['-c', 'printf ok']);
     assert.equal(prepared.env.ASHELL_GEMINI_TOOLS, '1');

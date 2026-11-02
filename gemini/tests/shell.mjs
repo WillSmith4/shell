@@ -8,7 +8,7 @@ const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gemini-shell-'));
 process.env.GEMINI_CLI_HOME = root;
 const {ShellExecutionService} = await import(pathToFileURL(path.join(process.env.APPDIR,'gemini/bundle/chunk-RZ3ZVTZB.js')));
 async function shell(cmd, signal = new AbortController().signal) {
-  return (await ShellExecutionService.execute(cmd, root, () => {}, signal, false, {})).result;
+  return (await ShellExecutionService.execute(cmd, root, () => {}, signal, false, {sanitizationConfig:{}})).result;
 }
 try {
   const first = await shell('printf "hello\\n"; exit 7');
