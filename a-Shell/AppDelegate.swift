@@ -279,7 +279,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         if #unavailable(iOS 18) {
             replaceCommand("wasmkit", "wasmkitUnavailable", true)
         }
-        if appVersion != "a-Shell-mini", #unavailable(iOS 26.2) {
+        if appVersion != "a-Shell-mini", #unavailable(iOS 17.0) {
             replaceCommand("codex", "codexUnavailable", true)
         }
         // for debugging TeX issues / installing a new distribution

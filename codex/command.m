@@ -23,8 +23,30 @@ extern void ios_closetty(void);
 static pthread_mutex_t command_lock = PTHREAD_MUTEX_INITIALIZER;
 static char **command_environment;
 static int command_error = -1;
+static pthread_mutex_t interrupt_lock = PTHREAD_MUTEX_INITIALIZER;
+static char *interrupt_session;
+static atomic_bool command_interrupted;
 static char **copy_tool_strings(const char *const *values);
 static void free_tool_strings(char **values);
+
+// ios_system invokes this callback on its caller's thread before queuing
+// pthread_cancel. Only request cooperative shutdown: Rust must join its workers
+// and drop the invocation's stderr guard before the host restores its streams.
+static void interrupt_command(int signal_number) {
+    (void)signal_number;
+    pthread_mutex_lock(&interrupt_lock);
+    const char *session = ios_getContext();
+    const char *program = ios_progname();
+    if (interrupt_session && session && program && !strcmp(program, "codex") &&
+        !strcmp(session, interrupt_session)) {
+        atomic_store(&command_interrupted, true);
+    }
+    pthread_mutex_unlock(&interrupt_lock);
+}
+
+int codex_ios_interrupted(void) {
+    return atomic_load(&command_interrupted);
+}
 
 // Only this invocation's immutable snapshot changes; HOME and global env stay intact.
 static int default_codex_home(char ***environment) {
@@ -158,6 +180,10 @@ struct command_cleanup {
     int signal_mask_saved;
     struct sigaction resize_handler;
     int resize_handler_saved;
+    struct sigaction interrupt_handler;
+    int interrupt_handler_saved;
+    int prior_cancel_state;
+    int was_interrupted;
 };
 
 // signal-hook retains its registration across embedded invocations, but
@@ -208,6 +234,15 @@ int codex_ios_terminal_size(unsigned short *columns, unsigned short *rows) {
 
 static void restore_command(void *context) {
     struct command_cleanup *state = context;
+    pthread_mutex_lock(&interrupt_lock);
+    state->was_interrupted = atomic_load(&command_interrupted);
+    free(interrupt_session);
+    interrupt_session = NULL;
+    if (state->interrupt_handler_saved && sigaction(SIGINT, &state->interrupt_handler, NULL)) {
+        state->status = 1;
+        fprintf(thread_stderr, "Cannot restore Codex interrupt handler; restart the app\n");
+    }
+    pthread_mutex_unlock(&interrupt_lock);
     if (state->signal_mask_saved && pthread_sigmask(SIG_SETMASK, &state->signal_mask, NULL)) {
         state->status = 1;
         fprintf(thread_stderr, "Cannot restore Codex signal mask; restart the app\n");
@@ -241,15 +276,33 @@ static void restore_command(void *context) {
 }
 
 int codex_ios_main(int argc, char **argv) {
+    int prior_cancel_state;
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &prior_cancel_state);
     if (pthread_mutex_trylock(&command_lock) != 0) {
         fprintf(thread_stderr, "Codex is already running in this app\n");
+        pthread_setcancelstate(prior_cancel_state, NULL);
         return 1;
     }
     FILE *streams[] = {thread_stdin, thread_stdout, thread_stderr};
-    struct command_cleanup state = {.saved = {-1, -1}, .status = 1};
+    struct command_cleanup state = {.saved = {-1, -1}, .status = 1,
+                                    .prior_cancel_state = prior_cancel_state};
     // ios_system can terminate a command with pthread_exit or pthread_cancel.
     // Register before the first descriptor change; pop also covers normal returns.
     pthread_cleanup_push(restore_command, &state);
+    atomic_store(&command_interrupted, false);
+    const char *session = ios_getContext();
+    if (!session || !(interrupt_session = strdup(session))) {
+        fprintf(thread_stderr, "Cannot capture Codex interrupt session\n");
+        goto restore;
+    }
+    struct sigaction interrupt_action = {0};
+    interrupt_action.sa_handler = interrupt_command;
+    sigemptyset(&interrupt_action.sa_mask);
+    if (sigaction(SIGINT, &interrupt_action, &state.interrupt_handler)) {
+        fprintf(thread_stderr, "Cannot install Codex interrupt handler (errno %d)\n", errno);
+        goto restore;
+    }
+    state.interrupt_handler_saved = 1;
     state.environment = copy_tool_strings((const char *const *)environmentVariables(ios_currentPid()));
     if (!state.environment) {
         fprintf(thread_stderr, "Cannot capture Codex command environment\n");
@@ -333,6 +386,10 @@ int codex_ios_main(int argc, char **argv) {
     }
 restore:
     pthread_cleanup_pop(1);
+    // ios_kill has also queued pthread_cancel. Keep it disabled on an
+    // interrupted, disposable command thread so ios_system can retain status 130.
+    if (!state.was_interrupted)
+        pthread_setcancelstate(state.prior_cancel_state, NULL);
     return state.status;
 }
 

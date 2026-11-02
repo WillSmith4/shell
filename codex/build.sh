@@ -6,7 +6,7 @@ cache=${CODEX_BUILD_CACHE:-${TMPDIR:-/tmp}/a-shell-codex}
 source=$cache/upstream
 export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$cache/target}
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
-export IPHONEOS_DEPLOYMENT_TARGET=26.2
+export IPHONEOS_DEPLOYMENT_TARGET=17.0
 export CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 export CARGO_PROFILE_RELEASE_OPT_LEVEL=z CARGO_PROFILE_RELEASE_DEBUG=0 CARGO_PROFILE_RELEASE_STRIP=symbols
 cargo=${CODEX_CARGO:-cargo}
@@ -56,13 +56,13 @@ apple_target() {
   device)
     sdk_name=iphoneos
     target=aarch64-apple-ios
-    triple=arm64-apple-ios26.2
+    triple=arm64-apple-ios17.0
     mach_platform=IOS
     ;;
   simulator)
     sdk_name=iphonesimulator
     target=aarch64-apple-ios-sim
-    triple=arm64-apple-ios26.2-simulator
+    triple=arm64-apple-ios17.0-simulator
     mach_platform=IOSSIMULATOR
     ;;
   *)
@@ -119,7 +119,7 @@ framework() {
 <key>CFBundlePackageType</key><string>FMWK</string>
 <key>CFBundleVersion</key><string>0.160.0</string>
 <key>CFBundleShortVersionString</key><string>0.160.0</string>
-<key>MinimumOSVersion</key><string>26.2</string>
+<key>MinimumOSVersion</key><string>17.0</string>
 </dict></plist>
 PLIST
   xcrun vtool -show-build "$output/codex"

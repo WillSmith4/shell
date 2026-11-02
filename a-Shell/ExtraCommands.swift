@@ -2473,7 +2473,7 @@ public func repeatCommand(argc: Int32, argv: UnsafeMutablePointer<UnsafeMutableP
 
 @_cdecl("codexUnavailable")
 public func codexUnavailable(argc: Int32, argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>?) -> Int32 {
-    fputs("codex requires iOS 26.2 or later.\n", thread_stderr)
+    fputs("codex requires iOS 17.0 or later.\n", thread_stderr)
     return 1
 }
 

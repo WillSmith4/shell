@@ -116,11 +116,32 @@ fn run_args(args: Vec<String>) -> c_int {
         codex_self_exe: std::env::current_exe().ok(),
         ..Default::default()
     };
-    match runtime.block_on(codex_cli::run_embedded(args, paths)) {
+    match runtime.block_on(async {
+        #[cfg(target_os = "ios")]
+        {
+            tokio::select! {
+                biased;
+                _ = wait_for_host_interrupt() => Ok(130),
+                result = codex_cli::run_embedded(args, paths) => result,
+            }
+        }
+        #[cfg(not(target_os = "ios"))]
+        codex_cli::run_embedded(args, paths).await
+    }) {
         Ok(status) => status,
         Err(error) => {
             eprintln!("Codex: {error:#}");
             1
         }
+    }
+}
+
+#[cfg(target_os = "ios")]
+async fn wait_for_host_interrupt() {
+    unsafe extern "C" {
+        fn codex_ios_interrupted() -> c_int;
+    }
+    while unsafe { codex_ios_interrupted() } == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 }

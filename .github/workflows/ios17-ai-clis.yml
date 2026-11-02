@@ -1,0 +1,47 @@
+name: iOS 17 AI CLIs and unsigned IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ios17-ai-clis]
+    paths:
+      - 'codex/**'
+      - 'node/**'
+      - 'gemini/**'
+      - 'ci/ai-clis.sh'
+      - '.github/workflows/ios17-ai-clis.yml'
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  codex:
+    runs-on: macos-26
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [device, simulator]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Toolchains
+        run: |
+          xcodebuild -version
+          rustup toolchain install 1.96.1 --profile minimal --no-self-update
+      - name: Build Codex for iOS 17
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: bash ci/ai-clis.sh codex "$PLATFORM"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: codex-${{ matrix.platform }}
+          path: .build/dist/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: codex-${{ matrix.platform }}-logs
+          path: .build/ai/**/*.log
+          if-no-files-found: ignore
