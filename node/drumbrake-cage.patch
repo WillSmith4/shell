@@ -1,0 +1,9 @@
+--- a/deps/v8/src/wasm/interpreter/arm64/interpreter-builtins-arm64.cc
++++ b/deps/v8/src/wasm/interpreter/arm64/interpreter-builtins-arm64.cc
+@@ -1015,5 +1015,5 @@
+     __ Mov(kRootRegister, x2);
+ 
+-#ifdef V8_COMPRESS_POINTERS_IN_SHARED_CAGE
++#ifdef V8_COMPRESS_POINTERS
+     // Initialize the pointer cage base register.
+     __ LoadRootRelative(kPtrComprCageBaseRegister,

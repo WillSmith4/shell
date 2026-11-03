@@ -30,6 +30,17 @@ async function main() {
     assert.throws(() => instance.exports.init(), WebAssembly.RuntimeError);
   }
   console.log('PASS WASM passive data, memory.init, data.drop, bounds trap, repeated instantiation');
+  const callbackModule = new Uint8Array([
+    0,97,115,109,1,0,0,0,
+    ...section(1,[1,0x60,1,0x7f,1,0x7f]),
+    ...section(2,[1,...name('env'),...name('id'),0,0]),
+    ...section(3,[1,0]),
+    ...section(7,[1,...name('call'),0,1]),
+    ...section(10,[1,...body([0x20,0,0x10,0])]),
+  ]);
+  const callback = await WebAssembly.instantiate(callbackModule,{env:{id:value=>value+1}});
+  assert.equal(callback.instance.exports.call(41),42);
+  console.log('PASS WASM-to-JavaScript callback with compressed pointers');
   const response = await fetch('https://example.com', {signal:AbortSignal.timeout(30000)});
   assert.equal(response.status, 200);
   assert.match(await response.text(), /Example Domain/);

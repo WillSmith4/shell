@@ -136,7 +136,7 @@ apply() (
       # Recreate every source overlay from the checksum pin. Preserve unchanged
       # file timestamps and compiler outputs, as codex/build.sh does, so a small
       # interpreter fix does not force rebuilding every unrelated Node object.
-      local node_patches="ios-platform host-tools command-options command-errors command-environment child-process drumbrake drumbrake-segments"
+      local node_patches="ios-platform host-tools command-options command-errors command-environment child-process drumbrake drumbrake-segments drumbrake-cage"
       local node_stamp command_patch node_changed=0
       node_stamp=$(
         {
