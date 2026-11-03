@@ -57,7 +57,8 @@ enum CommandEnvironmentCheck {
         let collision = parent.appendingPathComponent("LocalGroup")
         try Data("keep".utf8).write(to: collision)
         precondition(commandGroupDirectory(groupURL: nil, libraryURL: collisionLibrary) == collisionLibrary)
-        precondition(try Data(contentsOf: collision) == Data("keep".utf8))
+        let preserved = try Data(contentsOf: collision)
+        precondition(preserved == Data("keep".utf8))
         print("PASS fallback creation error returns existing Library without deleting files")
     }
 }
