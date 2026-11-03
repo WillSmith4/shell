@@ -11,7 +11,7 @@
  inline void WasmInterpreterRuntime::ElemDrop(uint32_t index) {
 --- a/deps/v8/src/wasm/interpreter/wasm-interpreter-runtime.cc
 +++ b/deps/v8/src/wasm/interpreter/wasm-interpreter-runtime.cc
-@@ -535,16 +535,16 @@
+@@ -535,18 +535,18 @@
    DirectHandle<WasmTrustedInstanceData> trusted_data =
        wasm_trusted_instance_data();
    Address dst_addr;
@@ -33,3 +33,5 @@
 -               reinterpret_cast<void*>(src_addr), size);
 +               src_addr, size);
    return true;
+ }
+ 
