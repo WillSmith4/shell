@@ -76,6 +76,11 @@ test -f "$bundle/gemini/launcher.mjs"
 python3 "$app/ci/check-ai-minimum.py" "$bundle"
 mkdir -p "$dist/Payload"
 ditto "$bundle" "$dist/Payload/a-Shell.app"
-(cd "$dist" && ditto -c -k --norsrc Payload a-Shell-ios17-unsigned.ipa)
+(cd "$dist" && ditto -c -k --norsrc --keepParent Payload a-Shell-ios17-unsigned.ipa)
+python3 - "$dist/a-Shell-ios17-unsigned.ipa" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    assert 'Payload/a-Shell.app/Info.plist' in archive.namelist(), 'Missing IPA Payload directory'
+PY
 shasum -a 256 "$dist/a-Shell-ios17-unsigned.ipa" >"$dist/SHA256SUMS"
 unzip -tq "$dist/a-Shell-ios17-unsigned.ipa"
