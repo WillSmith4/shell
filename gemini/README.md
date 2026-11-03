@@ -21,6 +21,9 @@ must be verified before claiming this port is supported on a device.
 The launcher selects manual authentication (`NO_BROWSER=true`). Use Gemini's
 normal API-key or manual Google authentication flow. Credentials are supplied
 by the user. No browser command or login credential is embedded.
+An explicit `GEMINI_CLI_HOME` is respected. An existing `$HOME/.gemini` is kept;
+otherwise settings and sessions use `$GROUP/Library/gemini/.gemini` (falling back
+to `$HOME/Library/gemini/.gemini` when no app-group path is available).
 
 Local stdio MCP servers and desktop tool sandboxes are rejected. HTTP MCP keeps
 its upstream transport. Native Node addons, arbitrary Linux executables, and
