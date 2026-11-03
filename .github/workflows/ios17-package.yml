@@ -10,7 +10,10 @@ on:
         required: true
       dependencies_url:
         description: URL of the matching full-app dependency tar.gz, rooted at the checkout
-        required: true
+        required: false
+      dependencies_asset:
+        description: Draft release asset ID for supplied dependencies
+        required: false
       dependencies_sha256:
         description: SHA-256 of the full-app dependency archive
         required: true
@@ -43,13 +46,24 @@ jobs:
       - name: Install matching full-app dependencies
         env:
           DEPENDENCIES_URL: ${{ inputs.dependencies_url }}
+          DEPENDENCIES_ASSET: ${{ inputs.dependencies_asset }}
           DEPENDENCIES_SHA256: ${{ inputs.dependencies_sha256 }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "$DEPENDENCIES_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]
-          curl --fail --location --retry 3 "$DEPENDENCIES_URL" -o "$RUNNER_TEMP/dependencies.tar.gz"
+          if [[ -n "$DEPENDENCIES_ASSET" ]]; then
+            [[ "$DEPENDENCIES_ASSET" =~ ^[0-9]+$ ]]
+            gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$DEPENDENCIES_ASSET" > "$RUNNER_TEMP/dependencies.tar.gz"
+          else
+            curl --fail --location --retry 3 "$DEPENDENCIES_URL" -o "$RUNNER_TEMP/dependencies.tar.gz"
+          fi
           echo "$DEPENDENCIES_SHA256  $RUNNER_TEMP/dependencies.tar.gz" | shasum -a 256 -c -
-          tar -xzf "$RUNNER_TEMP/dependencies.tar.gz"
+          python3 - "$RUNNER_TEMP/dependencies.tar.gz" <<'PY'
+          import sys, tarfile
+          with tarfile.open(sys.argv[1]) as archive:
+              archive.extractall('.', filter='data')
+          PY
       - name: Build and audit unsigned full app
         run: bash ci/package-unsigned.sh "$PWD/.build/ai-artifacts"
       - uses: actions/upload-artifact@v6
