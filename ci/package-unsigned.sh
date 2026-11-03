@@ -41,6 +41,20 @@ xcodebuild -create-xcframework \
   -output "$replacement"
 rsync -a --delete "$replacement/" "$framework/"
 
+# Codex and Gemini both require the Dash descriptor-cleanup fixes referenced by
+# the native Codex port. Use the same source as the Simulator acceptance harness.
+dash_sdk=$app/.build/ipa-dash-sdk
+mkdir -p "$dash_sdk"
+ditto "$app/.build/ipa-slices/codex/device/device/ios_system.framework" "$dash_sdk/ios_system.framework"
+bash ci/build-ai-dash.sh device "$dash_sdk" "$app/.build/ipa-dash-build"
+for name in dash dashA dashB dashC dashD dashE; do
+  updated=$app/.build/ipa-slices/$name.xcframework
+  xcodebuild -create-xcframework -framework "$dash_sdk/$name.framework" -output "$updated"
+  destination=$app/xcfs/.build/artifacts/xcfs/$name/$name.xcframework
+  mkdir -p "$destination"
+  rsync -a --delete "$updated/" "$destination/"
+done
+
 # The public Python download is 3.9; this project needs the maintainer's 3.13 set.
 for required in Resources/Frameworks/Python.framework Resources/Library/lib/python3.13; do
   if [[ ! -e $required ]]; then
