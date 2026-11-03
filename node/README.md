@@ -33,6 +33,18 @@ Command stdin/stdout/stderr use owned duplicate descriptors without replacing ap
 
 The bundled Gemini launcher selects a separate child adapter that compiles the existing native Codex tool transport. It serializes queued tools, joins command descendants before closing streams, and supports scoped cancellation through ChildProcess.kill. Ordinary Node child-process behavior remains as described above. Gemini terminal input, raw mode and size use captured ios_system callbacks; interactive child PTYs and local stdio MCP remain unsupported. See gemini/README.md for the acceptance suite.
 
+For this integration, use `bash ci/ai-clis.sh node device` and
+`bash ci/ai-clis.sh node simulator`. The driver uses separate build directories,
+pins ios_system at `df998e76cea0266bd3615bb9a1f4f7d745f318a2` and applies
+`ios-system-node-stack.patch`: Node/npm/npx command threads receive 16 MiB of
+stack for V8 parsing and garbage collection. The older SDK recipe above describes
+the original Node port and does not supply the complete Gemini/Codex prerequisites.
+
+The Node source overlay is reconstructed from the pinned archive when its patch
+stamp changes. Checksum synchronization preserves unchanged inputs and `out/`,
+then configure regenerates the dependency graph. Changes to V8 flags still
+invalidate affected compiler outputs; patches are always applied to clean input.
+
 ## Verification
 
 The results below describe the original port before the DrumBrake and Gemini changes. They do not qualify the new build.
