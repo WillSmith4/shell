@@ -1,0 +1,162 @@
+--- a/exec/src/lib.rs
++++ b/exec/src/lib.rs
+@@ -1126,5 +1126,12 @@
+     let (interrupt_tx, mut interrupt_rx) = mpsc::unbounded_channel::<()>();
+     tokio::spawn(async move {
+-        if tokio::signal::ctrl_c().await.is_ok() {
++        if async {
++            // The embedding boundary receives interrupts from ios_system.
++            // Do not replace its SIGINT callback with a process-wide listener.
++            #[cfg(target_os = "ios")]
++            { std::future::pending::<std::io::Result<()>>().await }
++            #[cfg(not(target_os = "ios"))]
++            { tokio::signal::ctrl_c().await }
++        }.await.is_ok() {
+             tracing::debug!("Keyboard interrupt");
+             let _ = interrupt_tx.send(());
+--- a/core/src/exec.rs
++++ b/core/src/exec.rs
+@@ -1075,5 +1075,12 @@
+             }
+         }
+-        _ = tokio::signal::ctrl_c() => {
++        _ = async {
++            // The embedding boundary receives interrupts from ios_system.
++            // Do not replace its SIGINT callback with a process-wide listener.
++            #[cfg(target_os = "ios")]
++            { std::future::pending::<std::io::Result<()>>().await }
++            #[cfg(not(target_os = "ios"))]
++            { tokio::signal::ctrl_c().await }
++        } => {
+             kill_child_process_group(&mut child)?;
+             child.start_kill()?;
+--- a/cli/src/mcp_login.rs
++++ b/cli/src/mcp_login.rs
+@@ -63,5 +63,12 @@
+     // Tokio retains its process-wide signal handler, so keep listening throughout
+     // token exchange and scope retries after the callback input reader is dropped.
+-    let ctrl_c = tokio::signal::ctrl_c();
++    let ctrl_c = async {
++            // The embedding boundary receives interrupts from ios_system.
++            // Do not replace its SIGINT callback with a process-wide listener.
++            #[cfg(target_os = "ios")]
++            { std::future::pending::<std::io::Result<()>>().await }
++            #[cfg(not(target_os = "ios"))]
++            { tokio::signal::ctrl_c().await }
++        };
+     tokio::pin!(ctrl_c);
+     for (attempt, scopes) in [resolved_scopes.scopes.as_slice(), &[]]
+--- a/cli/src/remote_control_cmd.rs
++++ b/cli/src/remote_control_cmd.rs
+@@ -187,5 +187,12 @@
+     let (stop_tx, stop_rx) = watch::channel(false);
+     let task = tokio::spawn(async move {
+-        if let Err(err) = tokio::signal::ctrl_c().await {
++        if let Err(err) = async {
++            // The embedding boundary receives interrupts from ios_system.
++            // Do not replace its SIGINT callback with a process-wide listener.
++            #[cfg(target_os = "ios")]
++            { std::future::pending::<std::io::Result<()>>().await }
++            #[cfg(not(target_os = "ios"))]
++            { tokio::signal::ctrl_c().await }
++        }.await {
+             eprintln!("failed to listen for Ctrl-C: {err}");
+         }
+--- a/cli/src/exec_server_telemetry.rs
++++ b/cli/src/exec_server_telemetry.rs
+@@ -146,10 +146,10 @@
+ }
+ 
+-#[cfg(unix)]
++#[cfg(all(unix, not(target_os = "ios")))]
+ struct ShutdownSignal {
+     terminate: tokio::signal::unix::Signal,
+ }
+ 
+-#[cfg(unix)]
++#[cfg(all(unix, not(target_os = "ios")))]
+ fn shutdown_signal() -> std::io::Result<ShutdownSignal> {
+     Ok(ShutdownSignal {
+@@ -158,23 +158,37 @@
+ }
+ 
+-#[cfg(unix)]
++#[cfg(all(unix, not(target_os = "ios")))]
+ async fn wait_for_shutdown_signal(mut shutdown_signal: ShutdownSignal) -> std::io::Result<()> {
+     tokio::select! {
+-        result = tokio::signal::ctrl_c() => result,
++        result = async {
++            // The embedding boundary receives interrupts from ios_system.
++            // Do not replace its SIGINT callback with a process-wide listener.
++            #[cfg(target_os = "ios")]
++            { std::future::pending::<std::io::Result<()>>().await }
++            #[cfg(not(target_os = "ios"))]
++            { tokio::signal::ctrl_c().await }
++        } => result,
+         _ = shutdown_signal.terminate.recv() => Ok(()),
+     }
+ }
+ 
+-#[cfg(not(unix))]
++#[cfg(any(not(unix), target_os = "ios"))]
+ struct ShutdownSignal;
+ 
+-#[cfg(not(unix))]
++#[cfg(any(not(unix), target_os = "ios"))]
+ fn shutdown_signal() -> std::io::Result<ShutdownSignal> {
+     Ok(ShutdownSignal)
+ }
+ 
+-#[cfg(not(unix))]
++#[cfg(any(not(unix), target_os = "ios"))]
+ async fn wait_for_shutdown_signal(_: ShutdownSignal) -> std::io::Result<()> {
+-    tokio::signal::ctrl_c().await
++    async {
++            // The embedding boundary receives interrupts from ios_system.
++            // Do not replace its SIGINT callback with a process-wide listener.
++            #[cfg(target_os = "ios")]
++            { std::future::pending::<std::io::Result<()>>().await }
++            #[cfg(not(target_os = "ios"))]
++            { tokio::signal::ctrl_c().await }
++        }.await
+ }
+ 
+--- a/app-server/src/lib.rs
++++ b/app-server/src/lib.rs
+@@ -215,5 +215,7 @@
+ 
+ async fn shutdown_signal() -> IoResult<ShutdownSignal> {
+-    #[cfg(unix)]
++    #[cfg(target_os = "ios")]
++    { return std::future::pending().await; }
++    #[cfg(all(unix, not(target_os = "ios")))]
+     {
+         use tokio::signal::unix::SignalKind;
+@@ -223,5 +225,12 @@
+         let mut hangup = signal(SignalKind::hangup())?;
+         tokio::select! {
+-            ctrl_c_result = tokio::signal::ctrl_c() => ctrl_c_result.map(|_| ShutdownSignal::Forceable),
++            ctrl_c_result = async {
++            // The embedding boundary receives interrupts from ios_system.
++            // Do not replace its SIGINT callback with a process-wide listener.
++            #[cfg(target_os = "ios")]
++            { std::future::pending::<std::io::Result<()>>().await }
++            #[cfg(not(target_os = "ios"))]
++            { tokio::signal::ctrl_c().await }
++        } => ctrl_c_result.map(|_| ShutdownSignal::Forceable),
+             _ = term.recv() => Ok(ShutdownSignal::Forceable),
+             _ = hangup.recv() => Ok(ShutdownSignal::GracefulOnly),
+@@ -232,5 +241,12 @@
+     {
+         let console_signal = async {
+-            if tokio::signal::ctrl_c().await.is_err() {
++            if async {
++            // The embedding boundary receives interrupts from ios_system.
++            // Do not replace its SIGINT callback with a process-wide listener.
++            #[cfg(target_os = "ios")]
++            { std::future::pending::<std::io::Result<()>>().await }
++            #[cfg(not(target_os = "ios"))]
++            { tokio::signal::ctrl_c().await }
++        }.await.is_err() {
+                 // A detached daemon has no console; keep its local control path active.
+                 std::future::pending::<()>().await;

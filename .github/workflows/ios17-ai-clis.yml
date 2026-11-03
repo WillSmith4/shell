@@ -28,6 +28,12 @@ jobs:
         run: |
           xcodebuild -version
           rustup toolchain install 1.96.1 --profile minimal --no-self-update
+      - name: Restore Rust compiler outputs
+        uses: actions/cache/restore@v5
+        with:
+          path: .build/ai/codex-${{ matrix.platform }}
+          key: codex-ios17-${{ matrix.platform }}-${{ github.sha }}
+          restore-keys: codex-ios17-${{ matrix.platform }}-
       - name: Build Codex for iOS 17
         env:
           PLATFORM: ${{ matrix.platform }}
@@ -43,3 +49,9 @@ jobs:
           name: codex-${{ matrix.platform }}-logs
           path: .build/ai/**/*.log
           if-no-files-found: ignore
+      - name: Retain Rust compiler outputs
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: .build/ai/codex-${{ matrix.platform }}
+          key: codex-ios17-${{ matrix.platform }}-${{ github.sha }}

@@ -1,29 +1,20 @@
 --- a/deps/v8/src/wasm/interpreter/wasm-interpreter-runtime-inl.h
 +++ b/deps/v8/src/wasm/interpreter/wasm-interpreter-runtime-inl.h
-@@ -92,7 +92,7 @@
- }
- 
+@@ -94,3 +94,3 @@
  inline void WasmInterpreterRuntime::DataDrop(uint32_t index) {
 -  wasm_trusted_instance_data()->data_segment_sizes()->set(index, 0);
 +  wasm_trusted_instance_data()->data_segments()->set(index, WireBytesRef{});
  }
- 
- inline void WasmInterpreterRuntime::ElemDrop(uint32_t index) {
 --- a/deps/v8/src/wasm/interpreter/wasm-interpreter-runtime.cc
 +++ b/deps/v8/src/wasm/interpreter/wasm-interpreter-runtime.cc
-@@ -535,18 +535,18 @@
-   DirectHandle<WasmTrustedInstanceData> trusted_data =
-       wasm_trusted_instance_data();
+@@ -537,4 +537,4 @@
    Address dst_addr;
 -  uint64_t src_max =
 -      trusted_data->data_segment_sizes()->get(data_segment_index);
 +  WireBytesRef segment = trusted_data->data_segments()->get(data_segment_index);
 +  uint64_t src_max = segment.length();
    if (!BoundsCheckMemRange(dst, &size, &dst_addr) ||
-       !base::IsInBounds(src, size, src_max)) {
-     SetTrap(MessageTemplate::kWasmTrapMemOutOfBounds, current_code);
-     return false;
-   }
+@@ -545,6 +545,6 @@
  
 -  Address src_addr =
 -      trusted_data->data_segment_starts()->get(data_segment_index) + src;
@@ -33,5 +24,3 @@
 -               reinterpret_cast<void*>(src_addr), size);
 +               src_addr, size);
    return true;
- }
- 
