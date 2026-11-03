@@ -20,13 +20,22 @@ sdk_path=$(xcrun --sdk "$sdk" --show-sdk-path)
 host_sdk=$(xcrun --sdk macosx --show-sdk-path)
 (
   cd "$work/source"
+  # The upstream checkout contains machine-local Autotools symlinks and omits
+  # compile/install-sh. Regenerate these helpers on the build host.
+  for helper in compile missing install-sh; do
+    [[ ! -L $helper ]] || rm "$helper"
+  done
+  if ! command -v autoreconf >/dev/null || ! command -v automake >/dev/null; then
+    brew install autoconf automake
+  fi
+  autoreconf --force --install >"$work/autoreconf.log" 2>&1
   flags="-std=gnu17 -target $triple -isysroot $sdk_path -DJOBS=0 -Dstat64=stat -Dlstat64=lstat -Dfstat64=fstat -DUSE_GLIBC_STDIO=1 -DFLUSHERR=1 -I$PWD -I$frameworks/ios_system.framework/Headers"
   ./configure CC=clang CXX=clang++ CC_FOR_BUILD="clang -isysroot $host_sdk -DJOBS=0" \
     CFLAGS="$flags" CPPFLAGS="$flags" CXXFLAGS="$flags" \
     LDFLAGS="-target $triple -isysroot $sdk_path -dynamiclib -F $frameworks -framework ios_system" \
     --build=arm-apple-darwin --host=aarch64-apple-darwin cross_compiling=yes --with-libedit >"$work/configure.log" 2>&1
   make -j3 >"$work/make.log" 2>&1
-) || { tail -n 60 "$work/configure.log" "$work/make.log" >&2; exit 1; }
+) || { tail -n 60 "$work/autoreconf.log" "$work/configure.log" "$work/make.log" >&2; exit 1; }
 for name in dash dashA dashB dashC dashD dashE; do
   output=$frameworks/$name.framework
   mkdir -p "$output"

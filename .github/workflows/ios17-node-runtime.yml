@@ -34,5 +34,7 @@ jobs:
         if: always()
         with:
           name: native-runtime-logs
-          path: .build/node-runtime/runtime-*.txt
+          path: |
+            .build/node-runtime/runtime-*.txt
+            .build/node-runtime/dash-build/*.log
           if-no-files-found: ignore
