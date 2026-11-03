@@ -6,6 +6,16 @@ on:
         description: Relink command adapters from successfully cached Node archives
         type: boolean
         default: false
+      runner:
+        description: macOS runner image
+        type: choice
+        options: [macos-26, xcode-27]
+        default: macos-26
+      platform:
+        description: Slice to build
+        type: choice
+        options: [both, device, simulator]
+        default: both
   push:
     branches: [codex/ios17-ai-clis]
     paths:
@@ -19,12 +29,12 @@ defaults:
     shell: bash
 jobs:
   node:
-    runs-on: macos-26
+    runs-on: ${{ inputs.runner || 'macos-26' }}
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        platform: [device, simulator]
+        platform: ${{ fromJSON(inputs.platform == 'simulator' && '["simulator"]' || inputs.platform == 'device' && '["device"]' || '["device","simulator"]') }}
     steps:
       - uses: actions/checkout@v6
         with:
