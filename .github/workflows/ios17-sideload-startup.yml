@@ -1,0 +1,43 @@
+name: Sideload startup without App Group
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  startup:
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          run-id: '41695436454'
+          github-token: ${{ github.token }}
+          name: node-simulator
+          path: .build/startup-input
+      - name: Compile and execute actual command environment initialization
+        run: |
+          set -euo pipefail
+          mkdir -p .build/startup-frameworks .build/startup-result
+          tar -xzf .build/startup-input/node-simulator.tar.gz -C .build/startup-frameworks
+          frameworks="$PWD/.build/startup-frameworks/simulator"
+          xcrun --sdk iphonesimulator swiftc -target arm64-apple-ios17.0-simulator \
+            -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
+            -F "$frameworks" -framework ios_system -framework UIKit \
+            -Xlinker -rpath -Xlinker "$frameworks" \
+            Util/CommandEnvironment.swift ci/tests/CommandEnvironmentCheck.swift \
+            -o .build/startup-result/check
+          xcrun simctl list devices available -j > .build/startup-devices.json
+          device=$(python3 -c 'import json; d=json.load(open(".build/startup-devices.json")); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if x["isAvailable"]))')
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b
+          xcrun simctl spawn "$device" "$PWD/.build/startup-result/check" "$PWD/.build/startup-result" 2>&1 | tee .build/startup-result/result.txt
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: sideload-startup-check
+          path: .build/startup-result/result.txt
+          if-no-files-found: ignore
