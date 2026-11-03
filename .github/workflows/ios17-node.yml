@@ -1,6 +1,11 @@
 name: iOS Node with WebAssembly interpreter
 on:
   workflow_dispatch:
+    inputs:
+      package_only:
+        description: Relink command adapters from successfully cached Node archives
+        type: boolean
+        default: false
   push:
     branches: [codex/ios17-ai-clis]
     paths:
@@ -33,6 +38,7 @@ jobs:
       - name: Build jitless Node with DrumBrake
         env:
           PLATFORM: ${{ matrix.platform }}
+          ASHELL_NODE_PACKAGE_ONLY: ${{ inputs.package_only && '1' || '0' }}
         run: bash ci/ai-clis.sh node "$PLATFORM"
       - uses: actions/upload-artifact@v6
         with:

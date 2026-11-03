@@ -275,6 +275,7 @@ PYABI
             -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" \
             -Wl,-install_name,@rpath/node.framework/node -Wl,-exported_symbol,_node_ios_main \
             -Wl,-exported_symbol,_npm_ios_main -Wl,-exported_symbol,_npx_ios_main \
+            -Wl,-map,"$cache/node-$platform.map" \
             -Wl,-dead_strip -F "$ios_system/$slice" \
             -framework ios_system -framework Foundation "${link_inputs[@]}" -o "$framework/node"
           xcrun strip -x "$framework/node"

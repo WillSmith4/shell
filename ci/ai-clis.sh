@@ -39,8 +39,11 @@ else
   fi
   stage=device
   [[ $platform != simulator ]] || stage=node
-  bash "$app/node/build.sh" "$stage"
+  if [[ ${ASHELL_NODE_PACKAGE_ONLY:-0} != 1 ]]; then
+    bash "$app/node/build.sh" "$stage"
+  fi
   bash "$app/node/build.sh" package
+  cp "$NODE_IOS_CACHE/node-$platform.map" "$app/.build/dist/node-$platform.map"
   framework=$NODE_IOS_CACHE/framework/$platform/node.framework
   if [[ $platform == device ]]; then
     ditto -c -k --norsrc "$app/Resources/npm" "$app/.build/dist/node-npm.zip"
