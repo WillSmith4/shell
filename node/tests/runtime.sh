@@ -63,6 +63,9 @@ if [[ ${ASHELL_NATIVE_DEBUG:-0} == 1 ]]; then
 fi
 if ! xcrun simctl spawn "$simulator" "$output/runtime" "$output" 2>"$output/runtime-native.txt"; then
   tail -n 100 "$output/runtime-native.txt"
+  # Separate startup failure from same-process reuse of an earlier WASM isolate.
+  SIMCTL_CHILD_ASHELL_GEMINI_FIRST=1 xcrun simctl spawn "$simulator" "$output/runtime" "$output" \
+    >"$output/runtime-fresh-stdout.txt" 2>"$output/runtime-fresh-native.txt" || true
   # The embedding adapter captures JS stderr, but V8 fatal errors can go to
   # process stderr or a Darwin crash report. Keep both for native diagnosis.
   sleep 5

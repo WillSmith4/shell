@@ -54,6 +54,10 @@ int main(int argc, char **argv) {
             "node -p 42",
             NULL
         };
+        if (getenv("ASHELL_GEMINI_FIRST")) {
+            commands[1] = "node gemini/launcher.mjs --version";
+            commands[2] = "node wasm.cjs";
+        }
         for (int n = 0; commands[n]; ++n) {
             struct sigaction action = {0};
             action.sa_sigaction = dump_native_failure;
