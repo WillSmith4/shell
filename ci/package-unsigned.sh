@@ -30,14 +30,15 @@ python3 gemini/build.py
 swift package --package-path xcfs --jobs 4 resolve
 if [[ -f .build/installed-app/manifest.json ]]; then
   python3 ci/import-app-dependencies.py
+  python3 ci/prepare-proj-data.py
 fi
 
 # Use the exact ios_system ABI compiled with the AI command artifacts.
 framework=xcfs/.build/artifacts/xcfs/ios_system/ios_system.xcframework
 replacement=$app/.build/ipa-slices/ios_system.xcframework
 xcodebuild -create-xcframework \
-  -framework "$app/.build/ipa-slices/codex/device/device/ios_system.framework" \
-  -framework "$app/.build/ipa-slices/codex/simulator/simulator/ios_system.framework" \
+  -framework "$app/.build/ipa-slices/node/device/device/ios_system.framework" \
+  -framework "$app/.build/ipa-slices/node/simulator/simulator/ios_system.framework" \
   -output "$replacement"
 rsync -a --delete "$replacement/" "$framework/"
 
@@ -45,7 +46,7 @@ rsync -a --delete "$replacement/" "$framework/"
 # the native Codex port. Use the same source as the Simulator acceptance harness.
 dash_sdk=$app/.build/ipa-dash-sdk
 mkdir -p "$dash_sdk"
-ditto "$app/.build/ipa-slices/codex/device/device/ios_system.framework" "$dash_sdk/ios_system.framework"
+ditto "$app/.build/ipa-slices/node/device/device/ios_system.framework" "$dash_sdk/ios_system.framework"
 bash ci/build-ai-dash.sh device "$dash_sdk" "$app/.build/ipa-dash-build"
 for name in dash dashA dashB dashC dashD dashE; do
   updated=$app/.build/ipa-slices/$name.xcframework

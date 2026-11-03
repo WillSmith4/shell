@@ -18,6 +18,9 @@ if [[ ! -d $work/ios-system ]]; then
   mkdir "$work/ios-system"
   tar -xzf "$work/ios-system.tar.gz" --strip-components=1 -C "$work/ios-system"
 fi
+if ! patch -s -f -F 0 --dry-run -R -p1 -d "$work/ios-system" <"$app/node/ios-system-node-stack.patch" >/dev/null 2>&1; then
+  patch -s -f -F 0 -p1 -d "$work/ios-system" <"$app/node/ios-system-node-stack.patch"
+fi
 sdk=iphoneos
 [[ $platform != simulator ]] || sdk=iphonesimulator
 xcodebuild -project "$work/ios-system/ios_system.xcodeproj" -target ios_system \

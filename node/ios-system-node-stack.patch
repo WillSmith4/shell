@@ -1,0 +1,22 @@
+--- a/ios_system.m
++++ b/ios_system.m
+@@ -547,5 +547,18 @@
+ static int createOwnedCommand(volatile pthread_t *thread, functionParameters *parameters) {
+     prepareOwnedCommand(parameters);
+-    int error = pthread_create((pthread_t *)thread, NULL, run_function, parameters);
++    pthread_attr_t attributes;
++    int error = pthread_attr_init(&attributes);
++    if (!error) {
++        const char *name = parameters->argc > 0 ? parameters->argv[0] : "";
++        const char *slash = strrchr(name, '/');
++        if (slash) name = slash + 1;
++        // Large V8 bundles need headroom for the parser and garbage collector.
++        // Keep the existing stack policy for every other command.
++        if (!strcmp(name, "node") || !strcmp(name, "npm") || !strcmp(name, "npx"))
++            error = pthread_attr_setstacksize(&attributes, 16 * 1024 * 1024);
++        if (!error)
++            error = pthread_create((pthread_t *)thread, &attributes, run_function, parameters);
++        pthread_attr_destroy(&attributes);
++    }
+     if (error) {
+         ios_storePidStatus(ios_currentPid(), 126);
