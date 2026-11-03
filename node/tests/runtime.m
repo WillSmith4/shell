@@ -51,6 +51,7 @@ int main(int argc, char **argv) {
             "node gemini/launcher.mjs --help",
             "node host.mjs",
             "node shell.mjs",
+            "node -e 'process.env.ASHELL_GEMINI_TOOLS=\"1\";require(\"child_process\").spawn(\"sleep\",[\"20\"]);setTimeout(()=>process.exit(0),100)'",
             "node -p 42",
             NULL
         };
