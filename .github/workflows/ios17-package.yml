@@ -18,7 +18,9 @@ on:
         description: SHA-256 of the full-app dependency archive
         required: true
 permissions:
-  contents: read
+  # GitHub requires repository write access to read assets of draft releases.
+  # The job only reads the supplied asset; it never publishes the draft.
+  contents: write
   actions: read
 jobs:
   package:
