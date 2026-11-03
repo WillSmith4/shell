@@ -22,7 +22,7 @@ die() {
 logged() {
   local log=$1
   shift
-  if ! "$@" >"$log" 2>&1; then
+  if ! bash "$app/ci/logged-build.sh" "$log" "$@"; then
     echo "Failed: $* (log: $log)" >&2
     tail -n 30 "$log" >&2
     return 1
