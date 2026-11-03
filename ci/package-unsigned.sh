@@ -28,6 +28,9 @@ ditto -x -k "$input/node-npm.zip" Resources/npm
 ditto -x -k "$input/node-fetch.zip" Resources/node-fetch
 python3 gemini/build.py
 swift package --package-path xcfs --jobs 4 resolve
+if [[ -f .build/installed-app/manifest.json ]]; then
+  python3 ci/import-app-dependencies.py
+fi
 
 # Use the exact ios_system ABI compiled with the AI command artifacts.
 framework=xcfs/.build/artifacts/xcfs/ios_system/ios_system.xcframework
