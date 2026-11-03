@@ -91,5 +91,6 @@ xcfs/node.xcframework/
 Resources/npm/
 Resources/node-fetch/
 Resources/gemini/
+Resources/proj/
 /fzf/fzf.xcframework/
 /navi/navi.xcframework/
