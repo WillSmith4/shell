@@ -45,4 +45,13 @@ xcrun --sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator \
   -I "$output/Frameworks/ios_system.framework/Headers" -F "$output/Frameworks" \
   -framework Foundation -framework ios_system -Wl,-rpath,"$output/Frameworks" \
   "$app/node/tests/runtime.m" -o "$output/runtime"
-xcrun simctl spawn "$simulator" "$output/runtime" "$output"
+if ! xcrun simctl spawn "$simulator" "$output/runtime" "$output"; then
+  # The embedding adapter captures JS stderr, but V8 fatal errors can go to
+  # process stderr or a Darwin crash report. Keep both for native diagnosis.
+  sleep 5
+  mkdir -p "$output/crashes"
+  find "$HOME/Library/Logs/DiagnosticReports" -name 'runtime*.ips' -exec cp {} "$output/crashes/" \; 2>/dev/null || true
+  xcrun simctl spawn "$simulator" log show --last 3m --style compact \
+    --predicate 'process == "runtime"' >"$output/runtime-system.txt" 2>&1 || true
+  exit 1
+fi

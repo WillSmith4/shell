@@ -37,4 +37,5 @@ jobs:
           path: |
             .build/node-runtime/runtime-*.txt
             .build/node-runtime/dash-build/*.log
+            .build/node-runtime/crashes/*
           if-no-files-found: ignore
