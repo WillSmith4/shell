@@ -1,0 +1,16 @@
+--- a/src/system.h
++++ b/src/system.h
+@@ -31,4 +31,5 @@
+ #include <limits.h>
+ #include <signal.h>
++#include <string.h>
+ #include <sys/types.h>
+ 
+@@ -64,4 +65,7 @@
+ 
+ #ifndef HAVE_STRCHRNUL
++/* New Apple SDKs declare a weak system strchrnul unavailable on iOS 17.
++ * Keep the bundled fallback private from that newer libc declaration. */
++#define strchrnul ashell_dash_strchrnul
+ char *strchrnul(const char *, int);
+ #endif

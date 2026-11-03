@@ -4,6 +4,7 @@ set -euo pipefail
 platform=${1:?device or simulator}
 frameworks=${2:?Directory containing ios_system.framework}
 work=${3:?New build directory}
+app=$(cd "$(dirname "$0")/.." && pwd -P)
 case $platform in
   device) sdk=iphoneos; triple=arm64-apple-ios17.0 ;;
   simulator) sdk=iphonesimulator; triple=arm64-apple-ios17.0-simulator ;;
@@ -16,6 +17,7 @@ revision=c95f39a9ac177a8964b91cd7474e972884376b76
 curl -fLsS --retry 3 "https://codeload.github.com/holzschu/dash_iOS/tar.gz/$revision" -o "$work/source.tar.gz"
 echo "4977c6b7fb3ff075fc93aec272059355f9bb4b7e46591a2ce0ee2b9b810c0500  $work/source.tar.gz" | shasum -a 256 -c -
 tar -xzf "$work/source.tar.gz" --strip-components=1 -C "$work/source"
+patch -s -f -F 0 -p1 -d "$work/source" <"$app/patches/dash-ios17-strchrnul.patch"
 sdk_path=$(xcrun --sdk "$sdk" --show-sdk-path)
 host_sdk=$(xcrun --sdk macosx --show-sdk-path)
 (
@@ -29,8 +31,10 @@ host_sdk=$(xcrun --sdk macosx --show-sdk-path)
     brew install autoconf automake
   fi
   autoreconf --force --install >"$work/autoreconf.log" 2>&1
-  flags="-std=gnu17 -target $triple -isysroot $sdk_path -DJOBS=0 -Dstat64=stat -Dlstat64=lstat -Dfstat64=fstat -DUSE_GLIBC_STDIO=1 -DFLUSHERR=1 -I$PWD -I$frameworks/ios_system.framework/Headers"
-  ./configure CC=clang CXX=clang++ CC_FOR_BUILD="clang -isysroot $host_sdk -DJOBS=0" \
+  flags="-std=gnu17 -target $triple -isysroot $sdk_path -Werror=unguarded-availability -Werror=unguarded-availability-new -DJOBS=0 -Dstat64=stat -Dlstat64=lstat -Dfstat64=fstat -DUSE_GLIBC_STDIO=1 -DFLUSHERR=1 -I$PWD -I$frameworks/ios_system.framework/Headers"
+  # Linking configure probes against a new SDK succeeds for weak imports even
+  # when the symbol is absent on the deployment OS. Select Dash's own fallback.
+  ac_cv_func_strchrnul=no ./configure CC=clang CXX=clang++ CC_FOR_BUILD="clang -isysroot $host_sdk -DJOBS=0" \
     CFLAGS="$flags" CPPFLAGS="$flags" CXXFLAGS="$flags" \
     LDFLAGS="-target $triple -isysroot $sdk_path -dynamiclib -F $frameworks -framework ios_system" \
     --build=arm-apple-darwin --host=aarch64-apple-darwin cross_compiling=yes --with-libedit >"$work/configure.log" 2>&1
@@ -47,4 +51,9 @@ for name in dash dashA dashB dashC dashD dashE; do
   plutil -replace CFBundleIdentifier -string "Nicolas-Holzschuch.$name" "$output/Info.plist"
   plutil -replace MinimumOSVersion -string 17.0 "$output/Info.plist"
   install_name_tool -id "@rpath/$name.framework/$name" "$output/$name"
+  if xcrun nm -u "$output/$name" | grep -E '(^|[[:space:]])_strchrnul$'; then
+    echo "$name still imports the system strchrnul unavailable on iOS 17" >&2
+    exit 1
+  fi
+  xcrun nm -gU "$output/$name" | grep -E ' T _ashell_dash_strchrnul$' >/dev/null
 done

@@ -51,6 +51,9 @@ int main(int argc, char **argv) {
             "node gemini/launcher.mjs --help",
             "node host.mjs",
             "node shell.mjs",
+            "dash -c 'echo OK'",
+            "dash -c ':'",
+            "dash -c 'printf \"hello world\\n\" > dash-regression.txt; cat dash-regression.txt'",
             "node -e 'process.env.ASHELL_GEMINI_TOOLS=\"1\";require(\"child_process\").spawn(\"sleep\",[\"20\"]);setTimeout(()=>process.exit(0),100)'",
             "node -p 42",
             NULL
@@ -71,6 +74,11 @@ int main(int argc, char **argv) {
             fflush(output); fflush(errors);
             printf("%s: status %d\n", commands[n], status);
             if (status != 0) return 1;
+        }
+        NSString *contents = [NSString stringWithContentsOfFile:@"dash-regression.txt" encoding:NSUTF8StringEncoding error:NULL];
+        if (![contents isEqualToString:@"hello world\n"]) return 1;
+        for (int n = 0; n < 12; ++n) {
+            if (ios_system("dash -c 'echo REENTRY'") != 0) return 1;
         }
         fclose(input); fclose(output); fclose(errors);
         puts("PASS native Node, WASM, HTTPS, Gemini files and shell service");
