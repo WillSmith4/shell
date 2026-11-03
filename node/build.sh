@@ -133,10 +133,11 @@ apply() (
         curl --http1.1 --remove-on-error -fL --retry 2 --max-time 600 "https://nodejs.org/dist/$rev/node-$rev.tar.gz" -o "$cache/pinned.tar.gz"
       fi
       [[ $(shasum -a 256 "$cache/pinned.tar.gz" | awk '{print $1}') == "$sha" ]] || die "$cache/pinned.tar.gz does not match the pinned checksum; delete it and rerun."
-      # The node and device stages share this tree. Extract and patch it once per patch set;
-      # any other state (older patches, interrupted run) is discarded with its build output.
+      # Recreate every source overlay from the checksum pin. Preserve unchanged
+      # file timestamps and compiler outputs, as codex/build.sh does, so a small
+      # interpreter fix does not force rebuilding every unrelated Node object.
       local node_patches="ios-platform host-tools command-options command-errors command-environment child-process drumbrake drumbrake-segments"
-      local node_stamp command_patch
+      local node_stamp command_patch node_changed=0
       node_stamp=$(
         {
           echo "$sha"
@@ -144,11 +145,16 @@ apply() (
         } | shasum -a 256
       )
       if [[ ! -f $source/.patched || $(<"$source/.patched") != "$node_stamp" ]]; then
-        [[ ! -e $source ]] || echo "Node source tree is not at the current patch set; extracting a fresh copy (full rebuild)."
-        rm -rf "$source"
+        local fresh
+        fresh=$(mktemp -d "$cache/source.XXXXXX")
+        tar -xzf "$cache/pinned.tar.gz" -C "$fresh" --strip-components=1
+        apply_patches "$fresh" $node_patches
         mkdir -p "$source"
-        tar -xzf "$cache/pinned.tar.gz" -C "$source" --strip-components=1
-        apply_patches "$source" $node_patches
+        rsync -a --no-times --checksum --delete --exclude /out/ \
+          --exclude /config.gypi --exclude /config.mk --exclude /icu_config.gypi \
+          "$fresh/" "$source/"
+        rm -r "$fresh"
+        node_changed=1
         echo "$node_stamp" >"$source/.patched"
       else
         echo "Node source already carries the current patches."
@@ -172,7 +178,7 @@ apply() (
         else
           configure_args+=(--ios-simulator)
         fi
-        if [[ ! -f config.gypi ]] || ! python3 -c 'import json,sys; v=json.loads(open("config.gypi").read().split("\n",1)[1])["variables"]; sys.exit(not (v["iossim"] == sys.argv[1] and v["target_arch"] == sys.argv[2] and v["icu_small"] == "true" and v["v8_enable_lite_mode"] == 1 and v["v8_enable_webassembly"] == 1 and v["v8_enable_drumbrake"] == 1 and v["v8_enable_pointer_compression"] == 1 and v["v8_enable_maglev"] == 0 and v["node_v8_options"] == "--jitless --wasm-jitless" and v["openssl_version"] >= 0x3000000f))' "$iossim" "$cpu" || [[ tools/v8_gypfiles/v8.gyp -nt out/Makefile || tools/v8_gypfiles/features.gypi -nt out/Makefile || tools/gyp/pylib/gyp/generator/make.py -nt out/Makefile || common.gypi -nt out/Makefile || $here/build.sh -nt config.gypi ]]; then
+        if [[ $node_changed == 1 || ! -f config.gypi ]] || ! python3 -c 'import json,sys; v=json.loads(open("config.gypi").read().split("\n",1)[1])["variables"]; sys.exit(not (v["iossim"] == sys.argv[1] and v["target_arch"] == sys.argv[2] and v["icu_small"] == "true" and v["v8_enable_lite_mode"] == 1 and v["v8_enable_webassembly"] == 1 and v["v8_enable_drumbrake"] == 1 and v["v8_enable_pointer_compression"] == 1 and v["v8_enable_maglev"] == 0 and v["node_v8_options"] == "--jitless --wasm-jitless" and v["openssl_version"] >= 0x3000000f))' "$iossim" "$cpu" || [[ tools/v8_gypfiles/v8.gyp -nt out/Makefile || tools/v8_gypfiles/features.gypi -nt out/Makefile || tools/gyp/pylib/gyp/generator/make.py -nt out/Makefile || common.gypi -nt out/Makefile || $here/build.sh -nt config.gypi ]]; then
           logged "$cache/configure.log" ./configure "${configure_args[@]}"
         fi
         # A failed probe leaves openssl_version 0 (only a warning); engine.cc then builds without engine compat and make dies in ncrypto.

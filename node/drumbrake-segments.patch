@@ -30,5 +30,6 @@
 +  const uint8_t* src_addr = trusted_data->native_module()->wire_bytes().data() +
 +                            segment.offset() + src;
    std::memmove(reinterpret_cast<void*>(dst_addr),
-                reinterpret_cast<void*>(src_addr), size);
+-               reinterpret_cast<void*>(src_addr), size);
++               src_addr, size);
    return true;
