@@ -5,6 +5,10 @@ on:
       node_run:
         description: Successful Node framework run ID
         required: true
+      debug_native:
+        description: Capture the native failure under LLDB
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -23,6 +27,8 @@ jobs:
           name: node-simulator
           path: .build/test-input
       - name: Run native command harness
+        env:
+          ASHELL_NATIVE_DEBUG: ${{ inputs.debug_native && '1' || '0' }}
         run: |
           set -euo pipefail
           xcrun simctl list devices available -j > .build/devices.json

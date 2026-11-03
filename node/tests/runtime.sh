@@ -45,6 +45,22 @@ xcrun --sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator \
   -I "$output/Frameworks/ios_system.framework/Headers" -F "$output/Frameworks" \
   -framework Foundation -framework ios_system -Wl,-rpath,"$output/Frameworks" \
   "$app/node/tests/runtime.m" -o "$output/runtime"
+if [[ ${ASHELL_NATIVE_DEBUG:-0} == 1 ]]; then
+  xcrun simctl spawn --wait-for-debugger "$simulator" "$output/runtime" "$output" >"$output/runtime-launch.txt" 2>&1 &
+  launcher=$!
+  for i in {1..100}; do
+    pid=$(pgrep -n -f "^$output/runtime" || true)
+    [[ -z $pid ]] || break
+    sleep 0.2
+  done
+  [[ -n $pid ]] || { cat "$output/runtime-launch.txt"; exit 1; }
+  xcrun lldb --batch -p "$pid" -o continue -o 'thread backtrace all' \
+    -o 'register read pc sp fp' -o 'image list -o -f' -o 'disassemble --pc --count 12' \
+    -o 'process kill' >"$output/runtime-debugger.txt" 2>&1
+  wait "$launcher" || true
+  cat "$output/runtime-debugger.txt"
+  exit 1
+fi
 if ! xcrun simctl spawn "$simulator" "$output/runtime" "$output" 2>"$output/runtime-native.txt"; then
   tail -n 100 "$output/runtime-native.txt"
   # The embedding adapter captures JS stderr, but V8 fatal errors can go to
