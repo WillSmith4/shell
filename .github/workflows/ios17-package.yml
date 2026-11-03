@@ -24,7 +24,9 @@ permissions:
   actions: read
 jobs:
   package:
-    runs-on: macos-26
+    # Upstream references SDK 27 Photos APIs behind runtime availability checks.
+    # Xcode 27 can compile those while retaining the app's iOS 17 deployment target.
+    runs-on: xcode-27
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
