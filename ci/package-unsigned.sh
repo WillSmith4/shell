@@ -76,7 +76,11 @@ test -f "$bundle/gemini/launcher.mjs"
 python3 "$app/ci/check-ai-minimum.py" "$bundle"
 mkdir -p "$dist/Payload"
 ditto "$bundle" "$dist/Payload/a-Shell.app"
-(cd "$dist" && ditto -c -k --norsrc --keepParent Payload a-Shell-ios17-unsigned.ipa)
+# Create a fresh IPA with Info-ZIP, preserving Unix modes and symbolic links.
+# Avoid update-mode mtime checks: every member comes from this completed build.
+test ! -e "$dist/a-Shell-ios17-unsigned.ipa"
+/usr/bin/zip -v | sed -n '1,4p'
+(cd "$dist" && /usr/bin/zip -q -r -y -X a-Shell-ios17-unsigned.ipa Payload)
 python3 - "$dist/a-Shell-ios17-unsigned.ipa" <<'PY'
 import sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as archive:
