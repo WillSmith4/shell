@@ -54,9 +54,9 @@ if [[ ${ASHELL_NATIVE_DEBUG:-0} == 1 ]]; then
     sleep 0.2
   done
   [[ -n $pid ]] || { cat "$output/runtime-launch.txt"; exit 1; }
-  xcrun lldb --batch -p "$pid" -o continue -o 'thread backtrace all' \
-    -o 'register read pc sp fp' -o 'image list -o -f' -o 'disassemble --pc --count 12' \
-    -o 'process kill' >"$output/runtime-debugger.txt" 2>&1
+  xcrun lldb --batch -p "$pid" -o continue -k 'thread backtrace all' \
+    -k 'register read pc sp fp' -k 'image list -o -f' -k 'disassemble --pc --count 12' \
+    -k 'process kill' >"$output/runtime-debugger.txt" 2>&1
   wait "$launcher" || true
   cat "$output/runtime-debugger.txt"
   exit 1
