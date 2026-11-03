@@ -14,8 +14,10 @@ try {
   const first = await shell('printf "hello\\n"; exit 7');
   assert.equal(first.exitCode, 7, JSON.stringify(first));
   assert.equal(first.output, 'hello');
+  console.log('PASS native shell output and status');
   const parallel = await Promise.all([shell('printf A'),shell('printf B')]);
   assert.deepEqual(parallel.map(x=>[x.exitCode,x.output]),[[0,'A'],[0,'B']]);
+  console.log('PASS queued native shell commands');
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(),500);
   const interrupted = await shell('sleep 20',controller.signal);

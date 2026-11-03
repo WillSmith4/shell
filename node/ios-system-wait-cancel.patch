@@ -1,0 +1,23 @@
+--- a/libc_replacement.c
++++ b/libc_replacement.c
+@@ -624,4 +624,8 @@
+ pid_t vfork(void) { return ios_nextAvailablePid(); }
+ 
++static void unlock_thread_completion(void *mutex) {
++    pthread_mutex_unlock(mutex);
++}
++
+ // simple replacement of waitpid for swift programs
+ // We use "optnone" to prevent optimization, otherwise the while loops never end.
+@@ -645,7 +649,10 @@
+     // notification mutex to avoid losing an exit between the check and wait.
+     pthread_mutex_lock(&thread_completion_mutex);
++    // cond_wait reacquires this mutex before cancellation handlers run. Release
++    // it before a parent shell's cleanup waits again for its cancelled child.
++    pthread_cleanup_push(unlock_thread_completion, &thread_completion_mutex);
+     while (atomic_load(&thread_ids[pid]) != 0)
+         pthread_cond_wait(&thread_completed, &thread_completion_mutex);
+-    pthread_mutex_unlock(&thread_completion_mutex);
++    pthread_cleanup_pop(1);
+     // fprintf(stderr, "Returning from ios_waitpid for %d \n", pid);
+     return;
