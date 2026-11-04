@@ -75,3 +75,39 @@
          case kS128:
          default:
            UNREACHABLE();
+--- a/deps/v8/src/wasm/interpreter/arm64/interpreter-builtins-arm64.cc
++++ b/deps/v8/src/wasm/interpreter/arm64/interpreter-builtins-arm64.cc
+@@ -166,7 +166,7 @@
+   // Input registers:
+   //  x7 (kWasmImplicitArgRegister): wasm_instance
+   //  x12: array_start
+-  //  w15: function_index
++  //  x15: function_index (tagged Smi)
+   Register array_start = x12;
+   Register function_index = x15;
+ 
+@@ -708,12 +708,10 @@
+ 
+   __ bind(&prepare_for_wasm_call);
+ 
+-  DEFINE_PINNED(function_index, w15);
+-  __ Ldr(
++  DEFINE_PINNED(function_index, x15);
++  __ LoadTaggedSignedField(
+       function_index,
+-      MemOperand(function_data, WasmExportedFunctionData::kFunctionIndexOffset -
+-                                    kHeapObjectTag));
+-  // We pass function_index as Smi.
++      FieldMemOperand(function_data, WasmExportedFunctionData::kFunctionIndexOffset));
+ 
+   // One tagged object (the wasm_instance) to be visited if there is a GC
+   // during the call.
+@@ -1558,7 +1556,7 @@
+   // x1: return_count as Smi.
+   // x27 (cp): context.
+   __ Ldr(x1, MemOperand(fp, kReturnCountOffset));
+-  __ Add(x1, x1, x1);
++  __ SmiTag(x1);
+ 
+   // Two tagged objects at the top of the stack (the context and the result,
+   // which we store at the place of the function object we called).

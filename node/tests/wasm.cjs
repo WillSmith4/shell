@@ -11,6 +11,20 @@ const body = (instructions, locals = [0]) => { const bytes = [...locals, ...inst
 
 async function main() {
   assert.equal(typeof WebAssembly, 'object');
+  // A truncated Smi makes both exports call function zero. The second export
+  // also exercises the ARM64 wrapper's result count for a JS callback.
+  const indices = new Uint8Array([
+    0,97,115,109,1,0,0,0,
+    ...section(1,[2,0x60,0,2,0x7f,0x7f,0x60,0,1,0x7f]),
+    ...section(2,[1,...name('env'),...name('pair'),0,0]),
+    ...section(3,[2,1,1]),
+    ...section(7,[2,...name('first'),0,1,...name('sum'),0,2]),
+    ...section(10,[2,...body([0x41,7]),...body([0x10,0,0x6a])]),
+  ]);
+  const functions = (await WebAssembly.instantiate(indices,{env:{pair:()=>[19,23]}})).instance.exports;
+  assert.equal(functions.first(),7);
+  assert.equal(functions.sum(),42);
+  console.log('PASS distinct WASM exports and multi-value JS callback');
   // memory.init copies passive data, data.drop prevents another nonempty copy.
   const bytes = new Uint8Array([
     0,97,115,109,1,0,0,0,

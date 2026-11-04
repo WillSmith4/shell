@@ -49,6 +49,8 @@ int main(int argc, char **argv) {
         joinMainThread = true;
         const char *commands[] = {
             "node --version",
+            "node -p 42",
+            "node wasm.cjs",
             "npm --version",
             "npx --version",
             "dash -c 'node -p 42'",
@@ -59,7 +61,6 @@ int main(int argc, char **argv) {
             "npx --offline --no ashell-npx-check",
             "npm run check --offline",
             "npx",
-            "node wasm.cjs",
             "node gemini/launcher.mjs --version",
             "node gemini/launcher.mjs --help",
             "node host.mjs",
