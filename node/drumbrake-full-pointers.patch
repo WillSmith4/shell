@@ -1,0 +1,77 @@
+--- a/deps/v8/src/wasm/interpreter/wasm-interpreter.cc
++++ b/deps/v8/src/wasm/interpreter/wasm-interpreter.cc
+@@ -5958,9 +5958,7 @@
+                                  WriteBarrierMode mode) {
+     DCHECK_EQ(dst_addr, host.ptr() + offset - kHeapObjectTag);
+ 
+-    // Only stores the lower 32-bit.
+-    base::WriteUnalignedValue<Tagged_t>(
+-        dst_addr, V8HeapCompressionScheme::CompressObject(value.ptr()));
++    ObjectSlot(dst_addr).store(value);
+ 
+     // Need to generate a GC write barrier.
+     CONDITIONAL_WRITE_BARRIER(host, offset, value, mode);
+@@ -6132,12 +6130,7 @@
+     }
+     int offset = Read<int32_t>(code);
+     Address field_addr = (*struct_obj).ptr() + offset;
+-    // DrumBrake expects pointer compression.
+-    Tagged_t ref_tagged = base::ReadUnalignedValue<uint32_t>(field_addr);
+-    Isolate* isolate = Isolate::Current();
+-    Tagged<Object> ref_uncompressed(
+-        V8HeapCompressionScheme::DecompressTagged(ref_tagged));
+-    WasmRef ref_handle = handle(ref_uncompressed, isolate);
++    WasmRef ref_handle = handle(ObjectSlot(field_addr).load(), wasm_runtime->GetIsolate());
+     push<WasmRef>(sp, code, wasm_runtime, ref_handle);
+ 
+     NextOp();
+@@ -6720,9 +6713,6 @@
+   INSTRUCTION_HANDLER_FUNC s2s_RefArrayFill(
+       const uint8_t* code, uint32_t* sp, WasmInterpreterRuntime* wasm_runtime,
+       int64_t r0, double fp0) {
+-    // DrumBrake currently only works with pointer compression.
+-    static_assert(COMPRESS_POINTERS_BOOL);
+-
+     uint32_t size = pop<uint32_t>(sp, code, wasm_runtime);
+     WasmRef value = pop<WasmRef>(sp, code, wasm_runtime);
+     Tagged<Object> tagged_value = *value;
+@@ -6756,8 +6746,9 @@
+                                       int64_t r0, double fp0) {
+     uint32_t value = pop<int32_t>(sp, code, wasm_runtime);
+ 
+-    // Truncate high bit.
+-    Tagged<Smi> smi(Internals::IntToSmi(value & 0x7fffffff));
++    // Sign-extend bit 30 even when an uncompressed Smi has 32 value bits.
++    int32_t signed_i31 = static_cast<int32_t>(value << 1) >> 1;
++    Tagged<Smi> smi = Smi::FromInt(signed_i31);
+     push<WasmRef>(sp, code, wasm_runtime,
+                   handle(smi, wasm_runtime->GetIsolate()));
+ 
+--- a/deps/v8/src/wasm/interpreter/wasm-interpreter-runtime.cc
++++ b/deps/v8/src/wasm/interpreter/wasm-interpreter-runtime.cc
+@@ -2279,10 +2279,8 @@
+           sp += sizeof(double) / kSlotSize;
+           break;
+         case kRef:
+-        case kRefNull:
+-          // TODO(paolosev@microsoft.com): Handle WasmNull case?
+-#ifdef V8_COMPRESS_POINTERS
+-        {
++        case kRefNull: {
++          // ARM64 returns references in a system-pointer-sized packer slot.
+           Address address = packer.Pop<Address>();
+           DirectHandle<Object> ref(Tagged<Object>(address), isolate_);
+           if (sig->GetReturn(i).value_type_code() == wasm::kFuncRefCode &&
+@@ -2296,11 +2294,8 @@
+           base::WriteUnalignedValue<DirectHandle<Object>>(
+               reinterpret_cast<Address>(sp), ref);
+           sp += sizeof(WasmRef) / kSlotSize;
++          break;
+         }
+-#else
+-          CHECK(false);  // Not supported.
+-#endif  // V8_COMPRESS_POINTERS
+-        break;
+         case kS128:
+         default:
+           UNREACHABLE();
