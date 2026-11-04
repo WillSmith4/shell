@@ -49,6 +49,7 @@ bash "$app/ci/build-ai-dash.sh" simulator "$output/Frameworks" "$output/dash-bui
 python3 "$app/gemini/build.py"
 ditto "$app/Resources/gemini" "$output/gemini"
 cp "$app/node/tests/wasm.cjs" "$output/"
+cp "$app/node/tests/intl.cjs" "$output/"
 cp "$app/gemini/tests/host.mjs" "$app/gemini/tests/files.mjs" "$app/gemini/tests/shell.mjs" "$output/"
 # Host test default path is checkout-relative; point it at the harness bundle.
 sed -i '' "s@Resources/gemini/@gemini/@" "$output/host.mjs"

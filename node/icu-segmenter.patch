@@ -1,0 +1,44 @@
+--- a/tools/icu/icu_small.json
++++ b/tools/icu/icu_small.json
+@@ -16,7 +16,7 @@
+   },
+   "trees": {
+     "ROOT": "locales",
+-    "brkitr": "none",
++    "brkitr": "leavealone",
+     "coll": "locales",
+     "curr": "locales",
+     "lang": "none",
+@@ -26,8 +26,8 @@
+     "converters": "none",
+     "stringprep": "locales",
+     "translit": "locales",
+-    "brkfiles": "none",
+-    "brkdict": "none",
++    "brkfiles": "leavealone",
++    "brkdict": "leavealone",
+     "confusables": "none",
+     "unit": "locales"
+   },
+@@ -35,7 +35,6 @@
+     "cnvalias.icu",
+     "postalCodeData.res",
+     "genderList.res",
+-    "brkitr/root.res",
+     "unames.icu"
+   ],
+   "keep": [
+--- a/deps/v8/src/objects/js-segmenter.cc
++++ b/deps/v8/src/objects/js-segmenter.cc
+@@ -95,8 +95,9 @@
+       break;
+   }
+ 
+-  DCHECK(U_SUCCESS(status));
+-  DCHECK_NOT_NULL(icu_break_iterator.get());
++  if (U_FAILURE(status) || !icu_break_iterator) {
++    THROW_NEW_ERROR(isolate, NewRangeError(MessageTemplate::kIcuError));
++  }
+ 
+   DirectHandle<Managed<icu::BreakIterator>> managed_break_iterator =
+       Managed<icu::BreakIterator>::From(isolate, 0,

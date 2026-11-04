@@ -101,6 +101,7 @@ int main(int argc, char **argv) {
             ios_setWindowSize(100, 35, session);
             ios_useNativeTTY(false);
             joinMainThread = true;
+            if (ios_system("node intl.cjs") != 0) return 1;
             setenv("GEMINI_CLI_TRUST_WORKSPACE", "true", 1);
             unsetenv("CI");
             pthread_t observer;
@@ -121,6 +122,7 @@ int main(int argc, char **argv) {
         const char *commands[] = {
             "node --version",
             "node -p 42",
+            "node intl.cjs",
             "node wasm.cjs",
             "npm --version",
             "npx --version",
