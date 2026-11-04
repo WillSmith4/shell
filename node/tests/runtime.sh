@@ -48,6 +48,22 @@ PY
 bash "$app/ci/build-ai-dash.sh" simulator "$output/Frameworks" "$output/dash-build"
 python3 "$app/gemini/build.py"
 ditto "$app/Resources/gemini" "$output/gemini"
+python3 - "$output/gemini/launcher.mjs" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+p.write_text('''if (process.env.ASHELL_INTERACTIVE_ONLY) {
+  const { appendFileSync } = await import('node:fs');
+  const log = message => appendFileSync('runtime-ui-trace.txt', message + '\\n');
+  log(`stdin=${process.stdin.constructor.name} ref=${typeof process.stdin.ref} tty=${process.stdin.isTTY}`);
+  const exit = process.exit;
+  process.exit = function(code) { log(new Error('process.exit ' + code).stack); return exit.call(process, code); };
+  process.on('uncaughtExceptionMonitor', err => log('uncaught ' + err.stack));
+  process.on('beforeExit', code => log('beforeExit ' + code));
+  const write = process.stderr.write;
+  process.stderr.write = function(chunk, ...args) { log('stderr: ' + chunk); return write.call(this, chunk, ...args); };
+}
+''' + p.read_text())
+PY
 cp "$app/node/tests/wasm.cjs" "$output/"
 cp "$app/node/tests/intl.cjs" "$output/"
 cp "$app/gemini/tests/host.mjs" "$app/gemini/tests/files.mjs" "$app/gemini/tests/shell.mjs" "$output/"

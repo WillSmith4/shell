@@ -8,6 +8,7 @@
 #include <execinfo.h>
 #include <dlfcn.h>
 #include <sys/ucontext.h>
+#include <sys/stat.h>
 #include <pthread.h>
 #include <stdatomic.h>
 
@@ -28,14 +29,19 @@ static void *exercise_interactive(void *unused) {
     char captured[65536];
     bool selected_key = false;
     for (int attempt = 0; attempt < 900 && !atomic_load(&interactive_finished); ++attempt) {
-        off_t size = lseek(fileno(terminal_output), 0, SEEK_END);
+        struct stat metadata;
+        if (fstat(fileno(terminal_output), &metadata) != 0) _exit(2);
+        off_t size = metadata.st_size;
         off_t start = size > sizeof(captured) - 1 ? size - sizeof(captured) + 1 : 0;
         ssize_t count = pread(fileno(terminal_output), captured, sizeof(captured) - 1, start);
         if (count > 0) {
             captured[count] = 0;
             if (!selected_key && strstr(captured, "Use Gemini API Key")) {
                 // Move from Google login to the API-key option, without logging in.
-                write(terminal_writer, "\033[B\r", 4);
+                usleep(300000);
+                if (write(terminal_writer, "\033[B", 3) != 3) _exit(2);
+                usleep(300000);
+                if (write(terminal_writer, "\r", 1) != 1) _exit(2);
                 selected_key = true;
             } else if (selected_key && strstr(captured, "Enter Gemini API Key")) {
                 atomic_store(&interactive_ready, true);
