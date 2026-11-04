@@ -51,3 +51,26 @@
    uv__queue_remove(&handle->queue);
    uv__handle_stop(handle);
  #ifdef UV_USE_SIGCHLD
+--- a/lib/internal/child_process.js
++++ b/lib/internal/child_process.js
+@@ -516,6 +516,20 @@
+       continue;
+     }
+ 
++    if (process.platform === 'ios' && err && stream.type === 'pipe') {
++      // The embedded command adapter can reject a missing executable before
++      // connecting the pipe. Expose closed streams and let onErrorNT deliver
++      // the original spawn error instead of reading the unconnected handle.
++      stream.handle.close();
++      stream.socket = createSocket(null, i > 0);
++      if (i > 0) {
++        this._closesNeeded++;
++        stream.socket.once('close', () => maybeClose(this));
++      }
++      stream.socket.destroy();
++      continue;
++    }
++
+     if (stream.handle) {
+       stream.socket = createSocket(this.pid !== 0 ?
+         stream.handle : null, i > 0);

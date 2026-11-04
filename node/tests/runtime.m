@@ -129,6 +129,7 @@ int main(int argc, char **argv) {
             "node --version",
             "node -p 42",
             "node intl.cjs",
+            "node missing-command.cjs",
             "node wasm.cjs",
             "npm --version",
             "npx --version",
