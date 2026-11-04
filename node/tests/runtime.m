@@ -2,6 +2,7 @@
 #include "ios_system.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <signal.h>
 #include <execinfo.h>
@@ -33,6 +34,8 @@ int main(int argc, char **argv) {
         setenv("PATH", [root stringByAppendingPathComponent:@"bin"].UTF8String, 1);
         setenv("APPDIR", root.UTF8String, 1);
         setenv("GEMINI_CLI_NO_RELAUNCH", "true", 1);
+        setenv("NPM_CONFIG_CACHE", [root stringByAppendingPathComponent:@"npm-cache"].UTF8String, 1);
+        setenv("NPM_CONFIG_PREFIX", root.UTF8String, 1);
         initializeEnvironment();
         static const char session[] = "node-runtime-test";
         ios_switchSession(session);
@@ -46,6 +49,16 @@ int main(int argc, char **argv) {
         joinMainThread = true;
         const char *commands[] = {
             "node --version",
+            "npm --version",
+            "npx --version",
+            "dash -c 'node -p 42'",
+            "dash -c 'npm --version && npx --version'",
+            "gemini --version",
+            "gemini --help",
+            "node -e 'require(\"./npm/node_modules/cmd-shim\")(\"node_modules/ashell-npx-check/cli.cjs\",\"node_modules/.bin/ashell-npx-check\")'",
+            "npx --offline --no ashell-npx-check",
+            "npm run check --offline",
+            "npx",
             "node wasm.cjs",
             "node gemini/launcher.mjs --version",
             "node gemini/launcher.mjs --help",
@@ -59,8 +72,7 @@ int main(int argc, char **argv) {
             NULL
         };
         if (getenv("ASHELL_GEMINI_FIRST")) {
-            commands[1] = "node gemini/launcher.mjs --version";
-            commands[2] = "node wasm.cjs";
+            commands[0] = "gemini --version";
         }
         for (int n = 0; commands[n]; ++n) {
             struct sigaction action = {0};
@@ -74,9 +86,15 @@ int main(int argc, char **argv) {
             fflush(output); fflush(errors);
             printf("%s: status %d\n", commands[n], status);
             if (status != 0) return 1;
+            if (strcmp(commands[n], "npx --offline --no ashell-npx-check") == 0) {
+                NSString *result = [NSString stringWithContentsOfFile:@"npx-result.txt" encoding:NSUTF8StringEncoding error:NULL];
+                if (![result isEqualToString:@"NPX_OK"]) return 1;
+            }
         }
         NSString *contents = [NSString stringWithContentsOfFile:@"dash-regression.txt" encoding:NSUTF8StringEncoding error:NULL];
         if (![contents isEqualToString:@"hello world\n"]) return 1;
+        contents = [NSString stringWithContentsOfFile:@"npx-result.txt" encoding:NSUTF8StringEncoding error:NULL];
+        if (![contents isEqualToString:@"NPX_OK"]) return 1;
         for (int n = 0; n < 12; ++n) {
             if (ios_system("dash -c 'echo REENTRY'") != 0) return 1;
         }

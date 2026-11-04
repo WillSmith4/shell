@@ -31,6 +31,12 @@ jobs:
           github-token: ${{ github.token }}
           name: node-simulator
           path: .build/test-input
+      - uses: actions/download-artifact@v7
+        with:
+          run-id: ${{ inputs.node_run }}
+          github-token: ${{ github.token }}
+          name: node-device
+          path: .build/npm-input
       - name: Run native command harness
         env:
           ASHELL_NATIVE_DEBUG: ${{ inputs.debug_native && '1' || '0' }}
@@ -40,7 +46,7 @@ jobs:
           device=$(python3 -c 'import json; d=json.load(open(".build/devices.json")); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if x["isAvailable"]))')
           xcrun simctl boot "$device" || true
           xcrun simctl bootstatus "$device" -b
-          bash node/tests/runtime.sh "$device" "$PWD/.build/test-input/node-simulator.tar.gz"
+          bash node/tests/runtime.sh "$device" "$PWD/.build/test-input/node-simulator.tar.gz" "$PWD/.build/npm-input/node-npm.zip"
       - uses: actions/upload-artifact@v6
         if: always()
         with:

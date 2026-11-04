@@ -73,6 +73,12 @@ bundle=$derived/Build/Products/Release-iphoneos/a-Shell.app
 test -f "$bundle/Frameworks/codex.framework/codex"
 test -f "$bundle/Frameworks/node.framework/node"
 test -f "$bundle/gemini/launcher.mjs"
+for command in node npm npx; do
+  # Dash resolves native ios_system commands through the existing empty files.
+  test -f "$bundle/bin/$command" && test ! -s "$bundle/bin/$command"
+done
+test -f "$bundle/npm/bin/npm-cli.js"
+test -f "$bundle/npm/bin/npx-cli.js"
 python3 "$app/ci/check-ai-minimum.py" "$bundle"
 mkdir -p "$dist/Payload"
 ditto "$bundle" "$dist/Payload/a-Shell.app"

@@ -2,12 +2,17 @@
 set -euo pipefail
 simulator=${1:?Simulator UUID}
 input=${2:?Node Simulator artifact tar.gz}
+npm=${3:?Bundled npm artifact zip}
 app=$(cd "$(dirname "$0")/../.." && pwd -P)
 output=$app/.build/node-runtime
 mkdir -p "$output/Frameworks" "$output/bin" "$output/deps"
 tar -xzf "$input" -C "$output"
 ditto "$output/simulator/node.framework" "$output/Frameworks/node.framework"
 ditto "$output/simulator/ios_system.framework" "$output/Frameworks/ios_system.framework"
+ditto -x -k "$npm" "$output/npm"
+# Use the actual packaged command files: synthesizing placeholders hid missing
+# bin/node, bin/npm and bin/npx in the full app.
+ditto "$app/Resources/bin" "$output/bin"
 python3 - "$app" "$output" <<'PY'
 import hashlib, json, pathlib, plistlib, re, shutil, sys, urllib.request, zipfile
 app, output = map(pathlib.Path, sys.argv[1:])
@@ -23,15 +28,22 @@ for product in ('text', 'shell'):
     shutil.copytree(framework,output/'Frameworks'/framework.name,dirs_exist_ok=True)
 commands = plistlib.loads((app/'Resources/commandDictionary.plist').read_bytes())
 selected = {}
-for command in ('node','dash','sleep','echo','cat','printf'):
+for command in ('node','npm','npx','sh','dash','sleep','echo','cat','printf','dirname','sed','uname'):
     definition = commands.get(command)
     if definition:
         definition[0] = str(output/'Frameworks'/definition[0])
         selected[command] = definition
-        (output/'bin'/command).touch()
-        (output/'bin'/command).chmod(0o755)
 with (output/'commandDictionary.plist').open('wb') as target:
     plistlib.dump(selected,target)
+for command in ('node','npm','npx'):
+    marker = output/'bin'/command
+    assert marker.is_file() and marker.stat().st_size == 0, f'Missing native command marker: {command}'
+# An offline JS CLI exercises npx's actual shell -> shim -> Node execution path.
+fixture = output/'node_modules'/'ashell-npx-check'
+fixture.mkdir(parents=True, exist_ok=True)
+(fixture/'package.json').write_text(json.dumps({'name':'ashell-npx-check', 'version':'1.0.0', 'bin':{'ashell-npx-check':'cli.cjs'}}))
+(fixture/'cli.cjs').write_text('#!/usr/bin/env node\nrequire("fs").writeFileSync("npx-result.txt", "NPX_OK"); console.log("NPX_OK");\n')
+(output/'package.json').write_text(json.dumps({'name':'ashell-runtime-check', 'version':'1.0.0', 'scripts':{'check':'node node_modules/ashell-npx-check/cli.cjs'}}))
 PY
 bash "$app/ci/build-ai-dash.sh" simulator "$output/Frameworks" "$output/dash-build"
 python3 "$app/gemini/build.py"
