@@ -73,7 +73,7 @@ bundle=$derived/Build/Products/Release-iphoneos/a-Shell.app
 test -f "$bundle/Frameworks/codex.framework/codex"
 test -f "$bundle/Frameworks/node.framework/node"
 test -f "$bundle/gemini/launcher.mjs"
-for command in node npm npx; do
+for command in node npm npx dash; do
   # Dash resolves native ios_system commands through the existing empty files.
   test -f "$bundle/bin/$command" && test ! -s "$bundle/bin/$command"
 done

@@ -10,6 +10,7 @@ touch Resources/bin/compress
 touch Resources/bin/cp
 touch Resources/bin/curl
 touch Resources/bin/date
+touch Resources/bin/dash
 touch Resources/bin/dc
 touch Resources/bin/diff
 touch Resources/bin/dig

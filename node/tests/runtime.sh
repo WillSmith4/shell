@@ -35,7 +35,7 @@ for command in ('node','npm','npx','sh','dash','sleep','echo','cat','printf','di
         selected[command] = definition
 with (output/'commandDictionary.plist').open('wb') as target:
     plistlib.dump(selected,target)
-for command in ('node','npm','npx'):
+for command in ('node','npm','npx','dash'):
     marker = output/'bin'/command
     assert marker.is_file() and marker.stat().st_size == 0, f'Missing native command marker: {command}'
 # An offline JS CLI exercises npx's actual shell -> shim -> Node execution path.
