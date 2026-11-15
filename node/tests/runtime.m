@@ -252,5 +252,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Main queue processed %d output updates\n", atomic_load(&main_ticks));
         exit(status);
     });
-    dispatch_main();
+    // UIKit must execute on the physical main thread. dispatch_main() exits
+    // that thread and may service its queue on a worker in a CLI executable.
+    CFRunLoopRun();
+    return 2;
 }

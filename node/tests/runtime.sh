@@ -91,7 +91,26 @@ if [[ ${ASHELL_NATIVE_DEBUG:-0} == 1 ]]; then
   exit 1
 fi
 SIMCTL_CHILD_ASHELL_INTERACTIVE_ONLY=1 xcrun simctl spawn "$simulator" "$output/runtime" "$output" \
-  >"$output/runtime-interactive-launch.txt" 2>"$output/runtime-interactive-native.txt"
+  >"$output/runtime-interactive-launch.txt" 2>"$output/runtime-interactive-native.txt" &
+launcher=$!
+# Capture all threads before the harness alarm terminates a stuck UI/input path.
+# Successful runs finish before this watchdog and keep their normal exit status.
+(
+  sleep 60
+  if kill -0 "$launcher" 2>/dev/null; then
+    pid=$(pgrep -n -f "^$output/runtime" || true)
+    if [[ -n $pid ]]; then
+      xcrun lldb --batch -p "$pid" -o 'thread backtrace all' -o 'process detach' \
+        >"$output/runtime-hang.txt" 2>&1 || true
+    fi
+  fi
+) &
+watchdog=$!
+status=0
+wait "$launcher" || status=$?
+kill "$watchdog" 2>/dev/null || true
+wait "$watchdog" 2>/dev/null || true
+[[ $status == 0 ]] || exit "$status"
 cp "$output/runtime-output.txt" "$output/runtime-interactive-output.txt"
 cp "$output/runtime-errors.txt" "$output/runtime-interactive-errors.txt"
 if ! xcrun simctl spawn "$simulator" "$output/runtime" "$output" 2>"$output/runtime-native.txt"; then
