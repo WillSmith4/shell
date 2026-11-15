@@ -19,21 +19,32 @@ static int terminal_writer;
 static int standard_writer;
 static const char session[] = "node-runtime-test";
 static FILE *terminal_output;
+static atomic_int main_ticks;
 
 static void send_terminal_key(const char *bytes, size_t length) {
     // Match SceneDelegate's route on the UI thread, which initially has no
     // command session. stdin and the tty are separate pipes in the app.
-    ios_switchSession(session);
-    ios_setContext(session);
-    int destination = ios_activePager() ? terminal_writer : standard_writer;
-    if (write(destination, bytes, length) != length) _exit(2);
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        ios_switchSession(session);
+        ios_setContext(session);
+        int destination = ios_activePager() ? terminal_writer : standard_writer;
+        if (write(destination, bytes, length) != length) _exit(2);
+    });
 }
 
 // The app's Swift terminal supplies these callbacks to ios_system. The harness
 // uses the same pipe-backed terminal and captures its output for assertions.
-int storeInteractive(void) { return terminal_mode; }
-void startInteractive(void) { terminal_mode = 1; }
-void stopInteractive(void) { terminal_mode = 0; }
+int storeInteractive(void) {
+    __block int result;
+    dispatch_sync(dispatch_get_main_queue(), ^{ result = terminal_mode; });
+    return result;
+}
+void startInteractive(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{ terminal_mode = 1; });
+}
+void stopInteractive(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{ terminal_mode = 0; });
+}
 
 static void *exercise_interactive(void *unused) {
     (void)unused;
@@ -94,7 +105,7 @@ static void dump_native_failure(int number, siginfo_t *info, void *context) {
     _exit(128 + number);
 }
 
-int main(int argc, char **argv) {
+static int run_checks(int argc, char **argv) {
     if (argc != 2) return 2;
     @autoreleasepool {
         alarm(180);
@@ -123,6 +134,22 @@ int main(int argc, char **argv) {
             FILE *tty = fdopen(descriptors[0], "r");
             terminal_writer = descriptors[1];
             terminal_output = output;
+            // Production stdout is a pipe drained before UIKit renders it.
+            int output_pipe[2];
+            if (pipe(output_pipe)) return 2;
+            output = fdopen(output_pipe[1], "w");
+            dispatch_source_t reader = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ,
+                output_pipe[0], 0, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
+            dispatch_source_set_event_handler(reader, ^{
+                char bytes[8192];
+                ssize_t count = read(output_pipe[0], bytes, sizeof(bytes));
+                if (count > 0) {
+                    fwrite(bytes, 1, count, terminal_output);
+                    fflush(terminal_output);
+                    dispatch_async(dispatch_get_main_queue(), ^{ atomic_fetch_add(&main_ticks, 1); });
+                }
+            });
+            dispatch_resume(reader);
             ios_setStreams(input, output, errors);
             ios_settty(tty);
             ios_setWindowSize(100, 35, session);
@@ -204,4 +231,13 @@ int main(int argc, char **argv) {
         puts("PASS native Node, WASM, HTTPS, Gemini files and shell service");
     }
     return 0;
+}
+
+int main(int argc, char **argv) {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        int status = run_checks(argc, argv);
+        fprintf(stderr, "Main queue processed %d output updates\n", atomic_load(&main_ticks));
+        exit(status);
+    });
+    dispatch_main();
 }
