@@ -54,10 +54,25 @@ cp "$app/node/tests/missing-command.cjs" "$output/"
 cp "$app/gemini/tests/host.mjs" "$app/gemini/tests/files.mjs" "$app/gemini/tests/shell.mjs" "$output/"
 # Host test default path is checkout-relative; point it at the harness bundle.
 sed -i '' "s@Resources/gemini/@gemini/@" "$output/host.mjs"
+git -C "$app" submodule update --init SwiftTerm
+cat >"$output/SwiftTermBuildInfo.swift" <<'SWIFT'
+enum SwiftTermBuildInfo {
+    static let tag = "test"
+    static let branch = "test"
+    static let version = "test"
+}
+SWIFT
+find "$app/SwiftTerm/Sources/SwiftTerm" -name '*.swift' >"$output/swift-sources.txt"
+xcrun --sdk iphonesimulator swiftc -emit-library -module-name SwiftTerm \
+  -target arm64-apple-ios17.0-simulator -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
+  @"$output/swift-sources.txt" "$output/SwiftTermBuildInfo.swift" "$app/node/tests/terminal-view.swift" \
+  -o "$output/libTerminalCheck.dylib" >"$output/runtime-swift-build.txt" 2>&1 || {
+    tail -n 70 "$output/runtime-swift-build.txt"; exit 1;
+  }
 xcrun --sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator \
   -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
   -I "$output/Frameworks/ios_system.framework/Headers" -F "$output/Frameworks" \
-  -framework Foundation -framework ios_system -Wl,-rpath,"$output/Frameworks" \
+  -framework Foundation -framework ios_system -L "$output" -lTerminalCheck -Wl,-rpath,"$output" -Wl,-rpath,"$output/Frameworks" \
   "$app/node/tests/runtime.m" -o "$output/runtime"
 if [[ ${ASHELL_NATIVE_DEBUG:-0} == 1 ]]; then
   SIMCTL_CHILD_ASHELL_INTERACTIVE_ONLY=1 xcrun simctl spawn --wait-for-debugger "$simulator" "$output/runtime" "$output" >"$output/runtime-launch.txt" 2>&1 &

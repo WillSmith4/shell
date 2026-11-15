@@ -20,15 +20,22 @@ static int standard_writer;
 static const char session[] = "node-runtime-test";
 static FILE *terminal_output;
 static atomic_int main_ticks;
+extern void test_create_terminal(void);
+extern void test_feed_terminal(const char *, size_t);
+extern void test_terminal_key(const char *, size_t);
+
+void test_send_bytes(const char *bytes, size_t length) {
+    ios_switchSession(session);
+    ios_setContext(session);
+    int destination = ios_activePager() ? terminal_writer : standard_writer;
+    if (write(destination, bytes, length) != length) _exit(2);
+}
 
 static void send_terminal_key(const char *bytes, size_t length) {
     // Match SceneDelegate's route on the UI thread, which initially has no
     // command session. stdin and the tty are separate pipes in the app.
     dispatch_sync(dispatch_get_main_queue(), ^{
-        ios_switchSession(session);
-        ios_setContext(session);
-        int destination = ios_activePager() ? terminal_writer : standard_writer;
-        if (write(destination, bytes, length) != length) _exit(2);
+        test_terminal_key(bytes, length);
     });
 }
 
@@ -134,6 +141,7 @@ static int run_checks(int argc, char **argv) {
             FILE *tty = fdopen(descriptors[0], "r");
             terminal_writer = descriptors[1];
             terminal_output = output;
+            dispatch_sync(dispatch_get_main_queue(), ^{ test_create_terminal(); });
             // Production stdout is a pipe drained before UIKit renders it.
             int output_pipe[2];
             if (pipe(output_pipe)) return 2;
@@ -146,7 +154,11 @@ static int run_checks(int argc, char **argv) {
                 if (count > 0) {
                     fwrite(bytes, 1, count, terminal_output);
                     fflush(terminal_output);
-                    dispatch_async(dispatch_get_main_queue(), ^{ atomic_fetch_add(&main_ticks, 1); });
+                    NSData *data = [NSData dataWithBytes:bytes length:count];
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        test_feed_terminal(data.bytes, data.length);
+                        atomic_fetch_add(&main_ticks, 1);
+                    });
                 }
             });
             dispatch_resume(reader);
