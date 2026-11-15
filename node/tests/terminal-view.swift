@@ -6,6 +6,8 @@ private final class InputDelegate: TerminalViewDelegate {
     func setTerminalTitle(source: TerminalView, title: String) {}
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
     func scrolled(source: TerminalView, position: Double) {}
+    func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {}
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
         typealias Send = @convention(c) (UnsafePointer<UInt8>?, Int) -> Void
         let send = unsafeBitCast(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "test_send_bytes"), to: Send.self)
