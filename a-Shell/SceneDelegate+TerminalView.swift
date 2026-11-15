@@ -632,7 +632,7 @@ extension SceneDelegate {
     // TerminalViewDelegate stubs:
     func sizeChanged(source: SwiftTerm.TerminalView, newCols: Int, newRows: Int) {
         if (newRows != height) || (newCols != width) {
-            ios_setWindowSize(Int32(newCols), Int32(newRows), self.persistentIdentifier?.toCString())
+            ios_setWindowSize(Int32(newCols), Int32(newRows), self.sessionKey)
         }
         if (newRows != height) {
             height = newRows
@@ -741,8 +741,8 @@ extension SceneDelegate {
                     // Calling ios_kill while executing webAssembly or JavaScript is a bad idea.
                     // Do we have a way to interrupt JS execution in WkWebView?
                     // Make sure we're on the right session:
-                    ios_switchSession(self.persistentIdentifier?.toCString())
-                    ios_setContext(UnsafeMutableRawPointer(mutating: self.persistentIdentifier?.toCString()))
+                    ios_switchSession(self.sessionKey)
+                    ios_setContext(UnsafeMutableRawPointer(mutating: self.sessionKey))
                     // Then send interrupt to the running command:
                     ios_kill() // TODO: add printPrompt() here if no command running
                 }
@@ -1574,13 +1574,11 @@ extension SceneDelegate {
             // ios_system's selected session is thread-local. UIKit key events
             // need this window's session before querying its TTY/pager state.
             // Gemini and Codex read tty_file, which is distinct from stdin_file.
-            ios_switchSession(self.persistentIdentifier?.toCString())
-            ios_setContext(UnsafeMutableRawPointer(mutating: self.persistentIdentifier?.toCString()))
+            ios_switchSession(self.sessionKey)
+            ios_setContext(UnsafeMutableRawPointer(mutating: self.sessionKey))
             // Node owns command streams, not a terminal signal-generating process.
             // A surrounding interactive Dash otherwise forwards these as bytes.
             if myData.count == 1, let key = myData.first, key == 3 || key == 4 {
-                ios_switchSession(self.persistentIdentifier?.toCString())
-                ios_setContext(UnsafeMutableRawPointer(mutating: self.persistentIdentifier?.toCString()))
                 if ios_activePager() == 0, let program = ios_progname(), String(cString: program) == "node" || (key == 3 && ["npm", "npx"].contains(String(cString: program))) {
                     send(source: source, inputString: key == 3 ? interrupt : endOfTransmission)
                     return
@@ -1590,24 +1588,11 @@ extension SceneDelegate {
             // active pager (interactive command): gets all the input sent through TTY:
             if (ios_activePager() != 0) {
                 if (tty_file_input != nil) {
-                    let savedSession = ios_getContext()
-                    ios_switchSession(self.persistentIdentifier?.toCString())
-                    ios_setContext(UnsafeMutableRawPointer(mutating: self.persistentIdentifier?.toCString()))
-                    ios_setStreams(self.stdin_file, self.stdout_file, self.stdout_file)
                     do {
                         try tty_file_input?.write(contentsOf: myData)
                     }
                     catch {
                         NSLog("Could not write data to tty?: \(myData)")
-                    }
-                    // We can get a session context that is not a valid UUID (InExtension, shSession...)
-                    // In that case, don't switch back to it:
-                    if let stringPointer = UnsafeMutablePointer<CChar>(OpaquePointer(savedSession)) {
-                        let savedSessionIdentifier = String(cString: stringPointer)
-                        if let uuid = UUID(uuidString: savedSessionIdentifier) {
-                            ios_switchSession(savedSession)
-                            ios_setContext(savedSession)
-                        }
                     }
                 }
                 return
@@ -1626,8 +1611,8 @@ extension SceneDelegate {
             }
             // interactive command: send the data directly
             if (interactiveCommandRunning || terminalView!.isCurrentBufferAlternate) && !helpRunningInIpython {
-                ios_switchSession(self.persistentIdentifier?.toCString())
-                ios_setContext(UnsafeMutableRawPointer(mutating: self.persistentIdentifier?.toCString()));
+                ios_switchSession(self.sessionKey)
+                ios_setContext(UnsafeMutableRawPointer(mutating: self.sessionKey));
                 ios_setStreams(self.stdin_file, self.stdout_file, self.stdout_file)
                 if (javascriptRunning && (thread_stdin_copy != nil)) {
                     // interactive WebAssembly commands

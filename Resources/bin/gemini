@@ -1,2 +1,7 @@
 #!/bin/sh
-node "$APPDIR/gemini/launcher.mjs" "$@"
+# Gemini requests a fresh invocation after persisting folder trust (code 199).
+while :; do
+    node "$APPDIR/gemini/launcher.mjs" "$@"
+    status=$?
+    [ "$status" -eq 199 ] || exit "$status"
+done
