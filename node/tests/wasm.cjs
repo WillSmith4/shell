@@ -11,6 +11,39 @@ const body = (instructions, locals = [0]) => { const bytes = [...locals, ...inst
 
 async function main() {
   assert.equal(typeof WebAssembly, 'object');
+  // Yoga adds callbacks with table.grow() followed by table.set(). Warm the
+  // interpreter first, then grow beyond dispatch-table capacity: clearing the
+  // new null entries must not write past the old indirect-call cache.
+  const tableModule = new Uint8Array([
+    0,97,115,109,1,0,0,0,
+    ...section(1,[2,0x60,0,1,0x7f,0x60,1,0x7f,1,0x7f]),
+    ...section(2,[1,...name('env'),...name('table'),1,0x70,0,1]),
+    ...section(3,[2,0,1]),
+    ...section(7,[2,...name('value'),0,0,...name('call'),0,1]),
+    ...section(10,[2,...body([0x41,42]),...body([0x20,0,0x11,0,0])]),
+  ]);
+  for (let round = 0; round < 8; ++round) {
+    const table = new WebAssembly.Table({element:'anyfunc', initial:1});
+    const first = (await WebAssembly.instantiate(tableModule,{env:{table}})).instance.exports;
+    const second = (await WebAssembly.instantiate(tableModule,{env:{table}})).instance.exports;
+    table.set(0, first.value);
+    assert.equal(first.call(0), 42);
+    assert.equal(second.call(0), 42);
+    for (const growth of [1,8,1,32,1,128]) {
+      const oldLength = table.length;
+      console.log(`WASM table growth ${round}: ${oldLength} + ${growth}`);
+      assert.equal(table.grow(growth), oldLength);
+      const index = table.length - 1;
+      assert.equal(table.get(index), null);
+      assert.throws(() => first.call(index), WebAssembly.RuntimeError);
+      table.set(index, second.value);
+      assert.equal(first.call(index), 42);
+      assert.equal(second.call(index), 42);
+      table.set(index, null);
+      assert.throws(() => second.call(index), WebAssembly.RuntimeError);
+    }
+  }
+  console.log('PASS WASM table growth, cache invalidation and shared-instance callbacks');
   // A truncated Smi makes both exports call function zero. The second export
   // also exercises the ARM64 wrapper's result count for a JS callback.
   const indices = new Uint8Array([
