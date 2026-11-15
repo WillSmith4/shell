@@ -146,11 +146,12 @@ static int run_checks(int argc, char **argv) {
             int output_pipe[2];
             if (pipe(output_pipe)) return 2;
             output = fdopen(output_pipe[1], "w");
+            int output_reader = output_pipe[0];
             dispatch_source_t reader = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ,
                 output_pipe[0], 0, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
             dispatch_source_set_event_handler(reader, ^{
                 char bytes[8192];
-                ssize_t count = read(output_pipe[0], bytes, sizeof(bytes));
+                ssize_t count = read(output_reader, bytes, sizeof(bytes));
                 if (count > 0) {
                     fwrite(bytes, 1, count, terminal_output);
                     fflush(terminal_output);
