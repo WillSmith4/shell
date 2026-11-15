@@ -25,6 +25,24 @@ def adapt(package):
     for chunk in chunks:
         path = package / 'bundle' / chunk
         text = path.read_text(encoding='utf-8')
+        # Startup checks all candidate editors while the auth/trust UI is live.
+        # In a-Shell each exec creates nested Dash sessions with host TTY callbacks.
+        # Match Dash's regular-file PATH lookup, including bundled command markers.
+        text = replace_once(text, 'function getCommandExistsCmd(cmd) {', '''import { statSync as ashellEditorStat } from "node:fs";
+import { join as ashellEditorPath } from "node:path";
+function ashellHasEditor(cmd) {
+  return (process.env.PATH ?? "").split(":").some(dir => {
+    try { return ashellEditorStat(ashellEditorPath(dir || ".", cmd)).isFile(); }
+    catch { return false; }
+  });
+}
+function getCommandExistsCmd(cmd) {''', path)
+        for signature in ('function commandExists(cmd)', 'async function commandExistsAsync(cmd)'):
+            text = replace_once(text, signature + ' {', signature + ''' {
+  if (process.platform === "ios") return ashellHasEditor(cmd);''', path)
+        text = replace_once(text, 'async function getProcessInfo(pid) {', '''async function getProcessInfo(pid) {
+  // Embedded commands are threads of a-Shell and have no desktop IDE ancestor.
+  if (process.platform === "ios") return { parentPid: 0, name: "", command: "" };''', path)
         text = replace_once(text, 'function getShellConfiguration() {', '''function getShellConfiguration() {
   // Dash is the embedded POSIX shell. Keep the upstream Bash parser/quoting.
   if (process.platform === "ios") {
@@ -59,6 +77,13 @@ def adapt(package):
       throw new Error("Local stdio MCP servers are unsupported in a-Shell; use an HTTP MCP server.");
     }''', path)
         text = text[:start] + section + text[end:]
+        path.write_text(text, encoding='utf-8', newline='\n')
+    for name in ['chunk-3KNX7NZM.js', 'chunk-AXCSQXNM.js', 'chunk-LAMG73EJ.js']:
+        path = package / 'bundle' / name
+        text = path.read_text(encoding='utf-8')
+        before = 'const envTerminal = getTerminalProgram();'
+        text = replace_once(text, before, before + '''
+  if (process.platform === "ios") return envTerminal;''', path)
         path.write_text(text, encoding='utf-8', newline='\n')
     for name in ['gemini-22EOGL6O.js', 'gemini-B5V54E2S.js', 'gemini-EOCRFAPZ.js']:
         path = package / 'bundle' / name

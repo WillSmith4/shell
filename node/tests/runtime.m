@@ -247,13 +247,17 @@ static int run_checks(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+    __block int result = 2;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         int status = run_checks(argc, argv);
-        fprintf(stderr, "Main queue processed %d output updates\n", atomic_load(&main_ticks));
-        exit(status);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            dprintf(STDERR_FILENO, "Main queue processed %d output updates\n", atomic_load(&main_ticks));
+            result = status;
+            CFRunLoopStop(CFRunLoopGetMain());
+        });
     });
     // UIKit must execute on the physical main thread. dispatch_main() exits
     // that thread and may service its queue on a worker in a CLI executable.
     CFRunLoopRun();
-    return 2;
+    return result;
 }
