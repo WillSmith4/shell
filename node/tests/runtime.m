@@ -16,7 +16,18 @@ static atomic_bool interactive_finished;
 static atomic_bool interactive_ready;
 static int terminal_mode;
 static int terminal_writer;
+static int standard_writer;
+static const char session[] = "node-runtime-test";
 static FILE *terminal_output;
+
+static void send_terminal_key(const char *bytes, size_t length) {
+    // Match SceneDelegate's route on the UI thread, which initially has no
+    // command session. stdin and the tty are separate pipes in the app.
+    ios_switchSession(session);
+    ios_setContext(session);
+    int destination = ios_activePager() ? terminal_writer : standard_writer;
+    if (write(destination, bytes, length) != length) _exit(2);
+}
 
 // The app's Swift terminal supplies these callbacks to ios_system. The harness
 // uses the same pipe-backed terminal and captures its output for assertions.
@@ -28,6 +39,7 @@ static void *exercise_interactive(void *unused) {
     (void)unused;
     char captured[65536];
     bool selected_key = false;
+    bool trusted_folder = false;
     for (int attempt = 0; attempt < 900 && !atomic_load(&interactive_finished); ++attempt) {
         struct stat metadata;
         if (fstat(fileno(terminal_output), &metadata) != 0) _exit(2);
@@ -36,18 +48,25 @@ static void *exercise_interactive(void *unused) {
         ssize_t count = pread(fileno(terminal_output), captured, sizeof(captured) - 1, start);
         if (count > 0) {
             captured[count] = 0;
-            if (!selected_key && strstr(captured, "Use Gemini API Key")) {
+            if (!trusted_folder && strstr(captured, "Do you trust the files in this folder?")) {
+                send_terminal_key("\033[B", 3);
+                usleep(300000);
+                send_terminal_key("\033[A", 3);
+                usleep(300000);
+                send_terminal_key("\r", 1);
+                trusted_folder = true;
+            } else if (!selected_key && strstr(captured, "Use Gemini API Key")) {
                 // Move from Google login to the API-key option, without logging in.
                 usleep(300000);
-                if (write(terminal_writer, "\033[B", 3) != 3) _exit(2);
+                send_terminal_key("\033[B", 3);
                 usleep(300000);
-                if (write(terminal_writer, "\r", 1) != 1) _exit(2);
+                send_terminal_key("\r", 1);
                 selected_key = true;
             } else if (selected_key && strstr(captured, "Enter Gemini API Key")) {
                 atomic_store(&interactive_ready, true);
-                write(terminal_writer, "\003", 1);
+                send_terminal_key("\003", 1);
                 usleep(300000);
-                write(terminal_writer, "\003", 1);
+                send_terminal_key("\003", 1);
                 return NULL;
             }
         }
@@ -88,7 +107,6 @@ int main(int argc, char **argv) {
         setenv("NPM_CONFIG_CACHE", [root stringByAppendingPathComponent:@"npm-cache"].UTF8String, 1);
         setenv("NPM_CONFIG_PREFIX", root.UTF8String, 1);
         initializeEnvironment();
-        static const char session[] = "node-runtime-test";
         ios_switchSession(session);
         ios_setContext(session);
         FILE *input = fopen("/dev/null", "r");
@@ -100,15 +118,18 @@ int main(int argc, char **argv) {
             if (pipe(descriptors)) return 2;
             fclose(input);
             input = fdopen(descriptors[0], "r");
+            standard_writer = descriptors[1];
+            if (pipe(descriptors)) return 2;
+            FILE *tty = fdopen(descriptors[0], "r");
             terminal_writer = descriptors[1];
             terminal_output = output;
             ios_setStreams(input, output, errors);
-            ios_settty(input);
+            ios_settty(tty);
             ios_setWindowSize(100, 35, session);
             ios_useNativeTTY(false);
             joinMainThread = true;
             if (ios_system("node intl.cjs") != 0) return 1;
-            setenv("GEMINI_CLI_TRUST_WORKSPACE", "true", 1);
+            unsetenv("GEMINI_CLI_TRUST_WORKSPACE");
             unsetenv("CI");
             pthread_t observer;
             if (pthread_create(&observer, NULL, exercise_interactive, NULL)) return 2;

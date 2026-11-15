@@ -1571,6 +1571,11 @@ extension SceneDelegate {
         }
         // if a command is running, send the data directly (except for webAssembly commands, who need a string)
         if (currentCommand != "") {
+            // ios_system's selected session is thread-local. UIKit key events
+            // need this window's session before querying its TTY/pager state.
+            // Gemini and Codex read tty_file, which is distinct from stdin_file.
+            ios_switchSession(self.persistentIdentifier?.toCString())
+            ios_setContext(UnsafeMutableRawPointer(mutating: self.persistentIdentifier?.toCString()))
             // Node owns command streams, not a terminal signal-generating process.
             // A surrounding interactive Dash otherwise forwards these as bytes.
             if myData.count == 1, let key = myData.first, key == 3 || key == 4 {
