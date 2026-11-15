@@ -19,7 +19,7 @@ private var view: TerminalView?
 private let inputDelegate = InputDelegate()
 
 @_cdecl("test_create_terminal")
-func createTerminal() {
+public func createTerminal() {
     dispatchPrecondition(condition: .onQueue(.main))
     let terminal = TerminalView(frame: CGRect(x: 0, y: 0, width: 1024, height: 700), font: nil)
     terminal.terminalDelegate = inputDelegate
@@ -27,13 +27,13 @@ func createTerminal() {
 }
 
 @_cdecl("test_feed_terminal")
-func feedTerminal(_ bytes: UnsafePointer<UInt8>, _ count: Int) {
+public func feedTerminal(_ bytes: UnsafePointer<UInt8>, _ count: Int) {
     dispatchPrecondition(condition: .onQueue(.main))
     view?.feed(byteArray: Array(UnsafeBufferPointer(start: bytes, count: count))[...])
 }
 
 @_cdecl("test_terminal_key")
-func terminalKey(_ bytes: UnsafePointer<UInt8>, _ count: Int) {
+public func terminalKey(_ bytes: UnsafePointer<UInt8>, _ count: Int) {
     dispatchPrecondition(condition: .onQueue(.main))
     let input = Array(UnsafeBufferPointer(start: bytes, count: count))
     if input == [27, 91, 66] { view?.sendKeyDown() }
