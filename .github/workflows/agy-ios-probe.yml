@@ -51,11 +51,14 @@ jobs:
               ('version','agy',['--version'],'1.5.9'),
               ('help','agy',['--help'],'Usage of agy:'),
               ('load','test-load',[str(out/'AgyEngine')],'AgyEngine loaded and host retained control'),
+              ('return','test-load',[str(out/'AgyEngine'),'--version'],'Host resumed after agy'),
           ]:
               try:
                   r=subprocess.run(['xcrun','simctl','spawn',os.environ['AGY_PROBE_DEVICE'],str(out/program),*args],capture_output=True,text=True,timeout=90)
                   text=f'EXIT={r.returncode}\n{r.stdout}\n{r.stderr}'
                   status=r.returncode or int(expected not in (r.stdout + r.stderr))
+                  if label == 'return' and '1.5.9' not in r.stdout.splitlines():
+                      status=1
               except subprocess.TimeoutExpired as e:
                   text=f'TIMEOUT\n{e.stdout!r}\n{e.stderr!r}'
                   status=124

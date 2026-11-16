@@ -30,8 +30,48 @@ def adjust_segments(data, start, size, rebase):
         raise ValueError('Truncated dyld operand')
 
 
+def encode_uleb(number):
+    encoded = bytearray()
+    while number >= 128:
+        encoded.append((number & 127) | 128)
+        number >>= 7
+    encoded.append(number)
+    return encoded
+
+
+def export_probe_entry(data, commands):
+    # Keep dyld's export trie immediately before the function-starts table,
+    # preserving linkedit ordering for codesign. This is the desktop process
+    # entry, explicitly named to avoid treating it as an embedded command ABI.
+    main = next(block for block in commands if struct.unpack_from('<I', block)[0] == 0x80000028)
+    entry, = struct.unpack_from('<Q', main, 8)
+    info = next(block for block in commands if struct.unpack_from('<I', block)[0] == 0x80000022)
+    lazy, lazy_size, exports, export_size = struct.unpack_from('<4I', info, 32)
+    if (exports, export_size) != (0, 0):
+        raise ValueError('Input already has exports')
+    at = lazy + lazy_size
+    symbol = b'_agy_probe_process_entry\0'
+    terminal = b'\0' + encode_uleb(entry)
+    node = encode_uleb(len(terminal)) + terminal + b'\0'
+    trie = b'\0\x01' + symbol + encode_uleb(3 + len(symbol)) + node
+    padding = trie.ljust((len(trie) + 7) & ~7, b'\0')
+    data[at:at] = padding
+    struct.pack_into('<II', info, 40, at, len(trie))
+    # All referenced linkedit file offsets following the insertion in 1.5.9.
+    for block in commands:
+        command, = struct.unpack_from('<I', block)
+        fields = {2: (8, 16), 11: (32, 40, 48, 56, 64, 72),
+                  0x26: (8,), 0x29: (8,)}.get(command, ())
+        for field in fields:
+            value, = struct.unpack_from('<I', block, field)
+            if value >= at:
+                struct.pack_into('<I', block, field, value + len(padding))
+    return len(padding)
+
+
 def library_commands(data, commands, signature_offset):
     result = []
+    signature_offset += export_probe_entry(data, commands)
     saw_pagezero = False
     for block in commands:
         cmd, = struct.unpack_from('<I', block)
