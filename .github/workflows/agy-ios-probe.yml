@@ -51,6 +51,7 @@ jobs:
           xcrun simctl boot "$device" || true
           xcrun simctl bootstatus "$device" -b
           export AGY_PROBE_DEVICE="$device"
+          python3 agy/test_acp.py "$device" "$out"
           python3 - <<'PY'
           import os, pathlib, subprocess
           out=pathlib.Path('.build/agy-probe/output').resolve()
