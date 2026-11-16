@@ -39,7 +39,6 @@ jobs:
           codesign --force --sign - "$out/ios_system.framework"
           xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=17.0 -isysroot "$sdk" -dynamiclib agy/probe_thread_exit.c -F"$out" -framework ios_system -Wl,-rpath,@loader_path -Wl,-reexport-lSystem -install_name @loader_path/AgyLibC -o "$out/AgyLibC"
           codesign --force --sign - "$out/AgyLibC"
-          xcrun install_name_tool -change /usr/lib/libSystem.B.dylib @loader_path/AgyLibC "$out/AgyEngine"
           codesign --force --sign - "$out/AgyEngine"
           codesign --force --sign - "$out/test-load"
           otool -L "$out/agy" > "$out/dependencies.txt"

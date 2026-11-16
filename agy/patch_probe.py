@@ -30,6 +30,8 @@ def patch(source, destination, platform, embedded=False):
             new = old.replace('/Versions/A/', '/').replace('/Versions/C/', '/')
             if any(x in old for x in ['/CoreServices.framework/', '/IOKit.framework/', '/Security.framework/']):
                 new = '@executable_path/libAgyProbe.dylib'
+            if embedded and old == '/usr/lib/libSystem.B.dylib':
+                new = '@loader_path/AgyLibC'
             if new != old:
                 encoded = new.encode() + b'\0'
                 assert len(encoded) <= length - name_offset
