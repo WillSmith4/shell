@@ -12,6 +12,7 @@ import sys
 import tempfile
 import termios
 import time
+from probe_cleanup import stop_probe
 
 
 def main(device, output, pipes=False):
@@ -22,13 +23,15 @@ def main(device, output, pipes=False):
         os.mkfifo(control_path, 0o600)
         control = os.open(control_path, os.O_RDWR)
         if pipes:
-            input_path, output_path = root / 'input', root / 'output'
-            for path in (input_path, output_path):
+            input_path, output_path, host_path = root / 'input', root / 'output', root / 'host-input'
+            for path in (input_path, output_path, host_path):
                 os.mkfifo(path, 0o600)
+            host_input = os.open(host_path, os.O_RDWR)
+            os.write(host_input, b'HHH')
             writer = os.open(input_path, os.O_RDWR)
             master = os.open(output_path, os.O_RDWR)
             slave = None
-            terminal_args = ['pipe-gate', str(input_path), str(control_path), str(output_path)]
+            terminal_args = ['pipe-gate', str(input_path), str(control_path), str(output_path), str(host_path)]
         else:
             master, slave = pty.openpty()
             writer = master
@@ -39,7 +42,8 @@ def main(device, output, pipes=False):
             if any(s in key.upper() for s in ("API_KEY", "AUTH_TOKEN", "ACCESS_TOKEN", "GOOGLE_APPLICATION_CREDENTIALS")):
                 del env[key]
         for key, value in {"HOME": str(root), "XDG_CONFIG_HOME": str(root / "config"),
-                           "XDG_CACHE_HOME": str(root / "cache"), "TERM": "xterm-256color"}.items():
+                           "XDG_CACHE_HOME": str(root / "cache"), "TERM": "xterm-256color",
+                           "AGY_CLI_DISABLE_AUTO_UPDATE": "true"}.items():
             env["SIMCTL_CHILD_" + key] = value
         log_path = output / f"{prefix}-host.txt"
         phases = []
@@ -94,14 +98,14 @@ def main(device, output, pipes=False):
                 assert log_path.read_text().count("Command thread ") == 1, "Runtime entry was called more than once"
             finally:
                 if process.poll() is None:
-                    process.kill()
-                    process.wait()
+                    stop_probe(process, log_path, output / "test-load")
                 for number, path in enumerate(root.rglob("*.log")):
                     shutil.copyfile(path, output / f"{prefix}-engine-{number}.txt")
                 os.close(control)
                 os.close(master)
                 if slave is not None: os.close(slave)
                 if writer != master: os.close(writer)
+                if pipes: os.close(host_input)
 
 
 if __name__ == "__main__":

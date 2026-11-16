@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -25,13 +26,15 @@ static void *run_command(void *arg) {
 
 int main(int argc, char **argv, char **envp) {
     int acp = argc == 5 && strcmp(argv[2], "acp") == 0;
-    int pipes = argc == 6 && strcmp(argv[2], "pipe-gate") == 0;
+    int pipes = argc == 7 && strcmp(argv[2], "pipe-gate") == 0;
     int gate = pipes || (argc == 5 && strcmp(argv[2], "tui-gate") == 0);
     int tui = gate || (argc == 4 && strcmp(argv[2], "tui") == 0);
     if (!acp && !tui && argc != 2 && (argc != 3 || strcmp(argv[2], "--version"))) return 2;
     FILE *host_log = fdopen(dup(STDERR_FILENO), "w");
     if (!host_log) return 1;
     setvbuf(host_log, NULL, _IONBF, 0);
+    fprintf(host_log, "Probe host pid %ld\n", (long)getpid());
+    if (pipes && !freopen(argv[6], "r", stdin)) return 1;
     int original[3];
     for (int fd = 0; fd < 3; ++fd) {
         original[fd] = dup(fd);
@@ -115,6 +118,14 @@ int main(int argc, char **argv, char **envp) {
                 // Real host-side work after UI cleanup and descriptor restoration.
                 char cwd[4096];
                 if (!getcwd(cwd, sizeof(cwd))) return 1;
+                if (pipes) {
+                    struct pollfd ready = {.fd = 0, .events = POLLIN};
+                    char sentinel;
+                    if (poll(&ready, 1, 3000) != 1 || read(0, &sentinel, 1) != 1 || sentinel != 'H') {
+                        fprintf(host_log, "Host input was not restored on attempt %u\n", attempt);
+                        return 1;
+                    }
+                }
                 printf("HOST-COMMAND-OK %u\n", attempt);
                 fflush(stdout);
                 if (attempt == 3) { close(engine_errors); break; }

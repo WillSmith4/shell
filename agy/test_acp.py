@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from probe_cleanup import stop_probe
 
 
 def exchange(writer, reader, request, process):
@@ -66,8 +67,7 @@ def main(device, output):
                 assert "Host resumed after agy 1" in (output / "acp-host.txt").read_text()
             finally:
                 if process.poll() is None:
-                    process.kill()
-                    process.wait()
+                    stop_probe(process, output / "acp-host.txt", output / "test-load")
 
 
 if __name__ == "__main__":

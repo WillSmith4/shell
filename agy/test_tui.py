@@ -12,6 +12,7 @@ import sys
 import tempfile
 import termios
 import time
+from probe_cleanup import stop_probe
 
 
 def observe(device, output, linux=None, repeat=False):
@@ -25,6 +26,7 @@ def observe(device, output, linux=None, repeat=False):
         for name, value in {
             "HOME": str(root), "XDG_CONFIG_HOME": str(root / "config"),
             "XDG_CACHE_HOME": str(root / "cache"), "TERM": "xterm-256color",
+            "AGY_CLI_DISABLE_AUTO_UPDATE": "true",
         }.items():
             env[("" if linux else "SIMCTL_CHILD_") + name] = value
         # Test a clean unauthenticated launch. Do not inherit account credentials.
@@ -87,8 +89,11 @@ def observe(device, output, linux=None, repeat=False):
                     raise RuntimeError("Host failed after canceling the original TUI")
             finally:
                 if process.poll() is None:
-                    process.kill()
-                    process.wait()
+                    if linux:
+                        process.kill()
+                        process.wait()
+                    else:
+                        stop_probe(process, output / f"{prefix}-host.txt", output / "test-load")
                 # A clean HOME contains no credentials; preserve only diagnostic logs.
                 for number, path in enumerate(root.rglob("*.log")):
                     shutil.copyfile(path, output / f"{prefix}-engine-{number}.txt")
