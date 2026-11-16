@@ -35,6 +35,16 @@ def patch(source, destination, platform, embedded=False, tui_loop=False, tui_gat
                 raise ValueError('Unexpected terminal duplication call')
             struct.pack_into('<II', data, off, 0xaa1f03e1, 0xd503201f)  # nil error, no duplicate
         changes.append('Application-owned terminal descriptors')
+        # The host gate reuses main.main's language server on every UI launch.
+        # On normal interactive exit, launchCLI closes its per-session store
+        # and backend, then calls the process-wide server shutdown callback.
+        # Keep the former cleanup and the deferred cleanup after the callback.
+        # The shared CascadeManager must remain usable until the app exits.
+        shutdown = 0x31e3b8c
+        if data[shutdown:shutdown+12] != bytes.fromhex('1a8c40f9400340f900003fd6'):
+            raise ValueError('Unexpected interactive CLI server shutdown callback')
+        struct.pack_into('<I', data, shutdown, 0x14000003)  # b .+12
+        changes.append('Keep the shared language server alive between interactive invocations')
     if tui_gate:
         if not embedded or tui_loop:
             raise ValueError('TUI gate requires embedded mode without the immediate-loop experiment')

@@ -4,8 +4,10 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import select
 import shutil
+import socket
 import struct
 import subprocess
 import sys
@@ -78,6 +80,7 @@ def main(device, output, pipes=False, command=False):
                 return data
 
             try:
+                server_port = None
                 for attempt in range(1, 4):
                     if command:
                         master, writer = masters[attempt - 1], writers[attempt - 1]
@@ -86,6 +89,14 @@ def main(device, output, pipes=False, command=False):
                     screen = read_phase(f"open-{attempt}", 90,
                                         lambda data: b"Select login method:" in data and b"Navigate" in data)
                     assert b"Select login method:" in screen, f"No original menu on invocation {attempt}"
+                    if command and server_port is None:
+                        for path in root.rglob("*.log"):
+                            match = re.search(r"Language server listening on random port at (\d+) for HTTP\b",
+                                              path.read_text(errors="replace"))
+                            if match:
+                                server_port = int(match[1])
+                                break
+                        assert server_port, "Missing the embedded language server's HTTP port"
                     for name, key in [("down", b"\x1b[B"), ("up", b"\x1b[A")]:
                         os.write(writer, key)
                         redraw = read_phase(f"{name}-{attempt}", 1)
@@ -98,6 +109,11 @@ def main(device, output, pipes=False, command=False):
                     if command:
                         assert b'1.5.9' in tail, "Version missing after UI exit"
                     assert marker in log_path.read_text(), f"Host did not regain control after invocation {attempt}"
+                    if command and attempt < 3:
+                        # Returning to the shell used to shut down this server.
+                        # The next TUI still opened, but could not start a conversation.
+                        with socket.create_connection(("localhost", server_port), timeout=3):
+                            pass
                     if attempt < 3:
                         idle = read_phase(f"idle-{attempt}", 1)
                         assert b"Select login method:" not in idle, "UI reopened without a host request"
