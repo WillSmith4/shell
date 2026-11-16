@@ -5,17 +5,21 @@
 #include <stdarg.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <termios.h>
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static int enabled;
 static struct winsize size;
 static struct termios mode;
+static struct stat streams[2];
+static int captured[2];
 
 void agy_probe_pipe_terminal(int active, unsigned short columns, unsigned short rows) {
     pthread_mutex_lock(&lock);
     enabled = active;
     if (active) {
+        for (int fd = 0; fd < 2; ++fd) captured[fd] = fstat(fd, &streams[fd]) == 0;
         memset(&mode, 0, sizeof(mode));
         mode.c_iflag = ICRNL;
         mode.c_oflag = OPOST | ONLCR;
@@ -28,6 +32,16 @@ void agy_probe_pipe_terminal(int active, unsigned short columns, unsigned short 
     pthread_mutex_unlock(&lock);
 }
 
+static int terminal_alias(int fd) {
+    struct stat candidate;
+    if (fstat(fd, &candidate)) return 0;
+    for (int i = 0; i < 2; ++i)
+        if (captured[i] && candidate.st_dev == streams[i].st_dev &&
+            candidate.st_ino == streams[i].st_ino &&
+            (candidate.st_mode & S_IFMT) == (streams[i].st_mode & S_IFMT)) return 1;
+    return 0;
+}
+
 int ioctl(int fd, unsigned long request, ...) {
     void *argument = NULL;
     if (!(request & IOC_VOID)) {
@@ -37,7 +51,9 @@ int ioctl(int fd, unsigned long request, ...) {
         va_end(args);
     }
     pthread_mutex_lock(&lock);
-    if (enabled && (fd == 0 || fd == 1)) {
+    // termio.Redirect keeps duplicated copies of the original streams before
+    // redirecting process stdout/stderr to the engine log. Follow those copies.
+    if (enabled && terminal_alias(fd)) {
         if (request == TIOCGETA) {
             *(struct termios *)argument = mode;
         } else if (request == TIOCSETA || request == TIOCSETAW || request == TIOCSETAF) {
