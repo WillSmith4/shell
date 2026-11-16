@@ -15,8 +15,8 @@ import time
 from probe_cleanup import stop_probe
 
 
-def main(device, output, pipes=False):
-    prefix = 'pipe-gate' if pipes else 'tui-gate'
+def main(device, output, pipes=False, command=False):
+    prefix = 'app-command' if command else 'pipe-gate' if pipes else 'tui-gate'
     with tempfile.TemporaryDirectory(dir=output) as directory:
         root = Path(directory)
         control_path = root / "control"
@@ -24,12 +24,15 @@ def main(device, output, pipes=False):
         control = os.open(control_path, os.O_RDWR)
         if pipes:
             input_path, output_path, host_path = root / 'input', root / 'output', root / 'host-input'
-            for path in (input_path, output_path, host_path):
+            inputs = [root / f'input-{n}' for n in (1, 2, 3)] if command else [input_path]
+            outputs = [root / f'output-{n}' for n in (1, 2, 3)] if command else [output_path]
+            for path in (*inputs, *outputs, host_path):
                 os.mkfifo(path, 0o600)
             host_input = os.open(host_path, os.O_RDWR)
             os.write(host_input, b'HHH')
-            writer = os.open(input_path, os.O_RDWR)
-            master = os.open(output_path, os.O_RDWR)
+            writers = [os.open(p, os.O_RDWR) for p in inputs]
+            masters = [os.open(p, os.O_RDWR) for p in outputs]
+            writer, master = writers[0], masters[0]
             slave = None
             terminal_args = ['pipe-gate', str(input_path), str(control_path), str(output_path), str(host_path)]
         else:
@@ -48,8 +51,9 @@ def main(device, output, pipes=False):
         log_path = output / f"{prefix}-host.txt"
         phases = []
         with log_path.open("w") as log, (output / f"{prefix}-terminal.txt").open("wb") as terminal:
-            process = subprocess.Popen(["xcrun", "simctl", "spawn", device, str(output / "test-load"),
-                                        str(output / "AgyEngineGate"), *terminal_args],
+            executable = output / ("test-command" if command else "test-load")
+            args = terminal_args[1:] if command else [str(output / "AgyEngineGate"), *terminal_args]
+            process = subprocess.Popen(["xcrun", "simctl", "spawn", device, str(executable), *args],
                                        stdin=subprocess.DEVNULL, stdout=log, stderr=log, env=env, cwd=root)
 
             def read_phase(label, seconds, until=None):
@@ -75,6 +79,8 @@ def main(device, output, pipes=False):
 
             try:
                 for attempt in range(1, 4):
+                    if command:
+                        master, writer = masters[attempt - 1], writers[attempt - 1]
                     if attempt > 1:
                         os.write(control, b"R")
                     screen = read_phase(f"open-{attempt}", 90,
@@ -88,25 +94,30 @@ def main(device, output, pipes=False):
                     read_phase(f"cancel-{attempt}", 0.3)
                     os.write(writer, b"\x03")
                     marker = f"HOST-COMMAND-OK {attempt}"
-                    read_phase(f"return-{attempt}", 30, lambda data: marker in log_path.read_text())
+                    tail = read_phase(f"return-{attempt}", 30, lambda data: marker in log_path.read_text() and (not command or b'1.5.9' in data))
+                    if command:
+                        assert b'1.5.9' in tail, "Version missing after UI exit"
                     assert marker in log_path.read_text(), f"Host did not regain control after invocation {attempt}"
                     if attempt < 3:
                         idle = read_phase(f"idle-{attempt}", 1)
                         assert b"Select login method:" not in idle, "UI reopened without a host request"
                         assert process.poll() is None, "Host terminated between invocations"
                 assert process.wait(timeout=15) == 0, "Test host failed at completion"
-                assert log_path.read_text().count("Command thread ") == 1, "Runtime entry was called more than once"
+                if not command:
+                    assert log_path.read_text().count("Command thread ") == 1, "Runtime entry was called more than once"
             finally:
                 if process.poll() is None:
-                    stop_probe(process, log_path, output / "test-load")
+                    stop_probe(process, log_path, executable)
                 for number, path in enumerate(root.rglob("*.log")):
                     shutil.copyfile(path, output / f"{prefix}-engine-{number}.txt")
                 os.close(control)
-                os.close(master)
+                if pipes:
+                    for fd in masters + writers: os.close(fd)
+                else:
+                    os.close(master)
                 if slave is not None: os.close(slave)
-                if writer != master: os.close(writer)
                 if pipes: os.close(host_input)
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], Path(sys.argv[2]).resolve(), '--pipes' in sys.argv)
+    main(sys.argv[1], Path(sys.argv[2]).resolve(), '--pipes' in sys.argv or '--command' in sys.argv, '--command' in sys.argv)

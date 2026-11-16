@@ -6,6 +6,7 @@ touch Resources/bin/chflags
 touch Resources/bin/cksum
 touch Resources/bin/chmod
 touch Resources/bin/codex
+touch Resources/bin/agy
 touch Resources/bin/compress
 touch Resources/bin/cp
 touch Resources/bin/curl

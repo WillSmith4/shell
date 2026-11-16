@@ -21,11 +21,12 @@ static int system_fstat(int fd, struct stat *metadata) {
     return real_fstat(fd, metadata);
 }
 
-void agy_probe_pipe_terminal(int active, unsigned short columns, unsigned short rows) {
+void agy_session_terminal(int active, int input, int output, unsigned short columns, unsigned short rows) {
     pthread_mutex_lock(&lock);
     enabled = active;
     if (active) {
-        for (int fd = 0; fd < 2; ++fd) captured[fd] = system_fstat(fd, &streams[fd]) == 0;
+        captured[0] = system_fstat(input, &streams[0]) == 0;
+        captured[1] = system_fstat(output, &streams[1]) == 0;
         memset(&mode, 0, sizeof(mode));
         mode.c_iflag = ICRNL;
         mode.c_oflag = OPOST | ONLCR;
@@ -36,6 +37,10 @@ void agy_probe_pipe_terminal(int active, unsigned short columns, unsigned short 
         size.ws_row = rows;
     }
     pthread_mutex_unlock(&lock);
+}
+
+void agy_probe_pipe_terminal(int active, unsigned short columns, unsigned short rows) {
+    agy_session_terminal(active, 0, 1, columns, rows);
 }
 
 static int matches_terminal(const struct stat *candidate) {

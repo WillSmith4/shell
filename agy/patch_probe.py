@@ -8,7 +8,7 @@ from embedded_image import library_commands
 
 SHA256 = 'fad3628ad91fe8613a72f074a1c5fde7cd816517788a5b9be96703f7d256741a'
 
-def patch(source, destination, platform, embedded=False, tui_loop=False, tui_gate=False):
+def patch(source, destination, platform, embedded=False, tui_loop=False, tui_gate=False, app=False):
     data = bytearray(source.read_bytes())
     if hashlib.sha256(data).hexdigest() != SHA256:
         raise ValueError('Only the audited agy 1.5.9 macOS arm64 binary is accepted')
@@ -16,6 +16,25 @@ def patch(source, destination, platform, embedded=False, tui_loop=False, tui_gat
     assert (magic, cpu, filetype) == (0xfeedfacf, 0x100000c, 2)
     commands = []
     changes = []
+    if app:
+        if not embedded or not tui_gate:
+            raise ValueError('App build requires the embedded TUI gate')
+        # Give Go private stdin/stdout/stderr and two stream handles owned by
+        # the TUI. termio may redirect its stdout/stderr without replacing
+        # process descriptors 0..2. command.m reserves these slots atomically.
+        for off, old, register, fd in [
+            (0x100834, '609743f9', 0, 96), (0x100870, '603f45f9', 0, 97),
+            (0x1008ac, '604345f9', 0, 98),
+            (0x1eddac, '610880d2', 0, 99), (0x1ede50, '610880d2', 0, 100),
+        ]:
+            if data[off:off+4] != bytes.fromhex(old):
+                raise ValueError(f'Stdio instruction mismatch at {off:#x}')
+            struct.pack_into('<I', data, off, 0xd2800000 | (fd << 5) | register)
+        for off, old in [(0x1eddb0, 'e2031faa07faff97'), (0x1ede54, 'e2031faadef9ff97')]:
+            if data[off:off+8] != bytes.fromhex(old):
+                raise ValueError('Unexpected terminal duplication call')
+            struct.pack_into('<II', data, off, 0xaa1f03e1, 0xd503201f)  # nil error, no duplicate
+        changes.append('Application-owned terminal descriptors')
     if tui_gate:
         if not embedded or tui_loop:
             raise ValueError('TUI gate requires embedded mode without the immediate-loop experiment')
@@ -61,10 +80,15 @@ def patch(source, destination, platform, embedded=False, tui_loop=False, tui_gat
                 new = '@executable_path/libAgyProbe.dylib'
             if embedded and old == '/usr/lib/libSystem.B.dylib':
                 new = '@loader_path/AgyLibC'
+            if app and new == '@loader_path/AgyLibC':
+                new = '@rpath/AgC.framework/AgC'
+            if app and new == '@executable_path/libAgyProbe.dylib':
+                new = '@rpath/AgCompat.framework/AgCompat'
             if new != old:
                 encoded = new.encode() + b'\0'
-                assert len(encoded) <= length - name_offset
-                block[name_offset:] = encoded.ljust(length - name_offset, b'\0')
+                new_size = max(length, (name_offset + len(encoded) + 7) & ~7)
+                struct.pack_into('<I', block, 4, new_size)
+                block[name_offset:] = encoded.ljust(new_size - name_offset, b'\0')
                 changes.append({'dependency': old, 'replacement': new})
         elif cmd == 0x1d:
             signature_offset, = struct.unpack_from('<I', block, 8)
@@ -79,6 +103,8 @@ def patch(source, destination, platform, embedded=False, tui_loop=False, tui_gat
         commands = library_commands(data, commands, signature_offset)
         changes.append('Convert executable to an embedded dynamic library')
     rebuilt = b''.join(commands)
+    if len(rebuilt) > size:
+        raise ValueError('Rebuilt load commands exceed the original header space')
     data[32:32 + size] = rebuilt.ljust(size, b'\0')
     struct.pack_into('<II', data, 16, len(commands), len(rebuilt))
     destination.write_bytes(data)
@@ -94,5 +120,6 @@ if __name__ == '__main__':
     p.add_argument('--embedded', action='store_true')
     p.add_argument('--tui-loop', action='store_true')
     p.add_argument('--tui-gate', action='store_true')
+    p.add_argument('--app', action='store_true')
     a = p.parse_args()
-    patch(a.source, a.destination, a.platform, a.embedded, a.tui_loop, a.tui_gate)
+    patch(a.source, a.destination, a.platform, a.embedded, a.tui_loop, a.tui_gate, a.app)

@@ -142,6 +142,13 @@
 		<string>ACEHILNPRVXafghinorstuvwx</string>
 		<string>file</string>
 	</array>
+	<key>agy</key>
+	<array>
+		<string>agy.framework/agy</string>
+		<string>agy_ios_main</string>
+		<string></string>
+		<string>file</string>
+	</array>
 	<key>codex</key>
 	<array>
 		<string>codex.framework/codex</string>

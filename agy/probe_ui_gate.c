@@ -10,6 +10,14 @@
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
 static unsigned completed, resumed;
+static int failed;
+
+void agy_engine_ended(void) {
+    pthread_mutex_lock(&mutex);
+    failed = 1;
+    pthread_cond_broadcast(&changed);
+    pthread_mutex_unlock(&mutex);
+}
 
 int agy_probe_wait_ui(unsigned invocation, unsigned seconds) {
     struct timespec until;
@@ -17,8 +25,10 @@ int agy_probe_wait_ui(unsigned invocation, unsigned seconds) {
     until.tv_sec += seconds;
     pthread_mutex_lock(&mutex);
     int result = 0;
-    while (completed < invocation && !result)
-        result = pthread_cond_timedwait(&changed, &mutex, &until);
+    while (!failed && completed < invocation && !result)
+        result = seconds ? pthread_cond_timedwait(&changed, &mutex, &until)
+                         : pthread_cond_wait(&changed, &mutex);
+    if (failed) result = EPIPE;
     pthread_mutex_unlock(&mutex);
     return result;
 }
