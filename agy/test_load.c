@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 struct invocation {
     void (*start)(int, char **);
@@ -18,6 +19,9 @@ static void *run_command(void *arg) {
 int main(int argc, char **argv, char **envp) {
     int acp = argc == 5 && strcmp(argv[2], "acp") == 0;
     if (!acp && argc != 2 && (argc != 3 || strcmp(argv[2], "--version"))) return 2;
+    FILE *host_log = fdopen(dup(STDERR_FILENO), "w");
+    if (!host_log) return 1;
+    setvbuf(host_log, NULL, _IONBF, 0);
     // Only this disposable host lends its process stdio to the Go executable.
     if (acp && (!freopen(argv[3], "r", stdin) || !freopen(argv[4], "w", stdout))) {
         perror("ACP test pipes");
@@ -25,14 +29,14 @@ int main(int argc, char **argv, char **envp) {
     }
     void *engine = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
     if (engine == NULL) {
-        fprintf(stderr, "Loading AgyEngine: %s\n", dlerror());
+        fprintf(host_log, "Loading AgyEngine: %s\n", dlerror());
         return 1;
     }
-    fprintf(stderr, "AgyEngine loaded and host retained control\n");
+    fprintf(host_log, "AgyEngine loaded and host retained control\n");
     if (argc == 3 || acp) {
         void (*start)(int, char **) = dlsym(engine, "agy_probe_process_entry");
         if (!start) {
-            fprintf(stderr, "Missing agy process entry: %s\n", dlerror());
+            fprintf(host_log, "Missing agy process entry: %s\n", dlerror());
             return 1;
         }
         size_t count = 0;
@@ -44,16 +48,16 @@ int main(int argc, char **argv, char **envp) {
         startup[1] = argv[2];
         memcpy(startup + 3, envp, count * sizeof(*envp));
         startup[count + 4] = argv[1];
-        fprintf(stderr, "Host entering agy\n");
+        fprintf(host_log, "Host entering agy\n");
         fflush(stdout);
         struct invocation command = {start, startup};
         for (int attempt = 1; attempt <= (acp ? 1 : 2); ++attempt) {
             pthread_t worker;
-            fprintf(stderr, "Starting agy %d\n", attempt);
+            fprintf(host_log, "Starting agy %d\n", attempt);
             fflush(stdout);
             if (pthread_create(&worker, NULL, run_command, &command) != 0) return 1;
             if (pthread_join(worker, NULL) != 0) return 1;
-            fprintf(stderr, "Host resumed after agy %d\n", attempt);
+            fprintf(host_log, "Host resumed after agy %d\n", attempt);
             fflush(stdout);
         }
         free(startup);

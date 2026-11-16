@@ -42,7 +42,7 @@ jobs:
           codesign --force --sign - "$out/AgyEngine"
           codesign --force --sign - "$out/test-load"
           otool -L "$out/agy" > "$out/dependencies.txt"
-      - name: Run on Simulator without account credentials
+      - name: Boot Simulator
         run: |
           set -euo pipefail
           out="$PWD/.build/agy-probe/output"
@@ -50,8 +50,11 @@ jobs:
           device=$(python3 -c 'import json; d=json.load(open(".build/agy-probe/output/devices.json")); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if x["isAvailable"]))')
           xcrun simctl boot "$device" || true
           xcrun simctl bootstatus "$device" -b
-          export AGY_PROBE_DEVICE="$device"
-          python3 agy/test_acp.py "$device" "$out"
+          echo "AGY_PROBE_DEVICE=$device" >> "$GITHUB_ENV"
+      - name: Verify ACP requests on one embedded runtime without credentials
+        run: python3 agy/test_acp.py "$AGY_PROBE_DEVICE" .build/agy-probe/output
+      - name: Verify native process entry and repeated invocation
+        run: |
           python3 - <<'PY'
           import os, pathlib, subprocess
           out=pathlib.Path('.build/agy-probe/output').resolve()

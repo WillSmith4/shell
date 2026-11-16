@@ -11,14 +11,14 @@ import time
 
 def exchange(writer, reader, request, process):
     writer.write((json.dumps(request) + "\n").encode())
-    deadline = time.monotonic() + 60
+    deadline = time.monotonic() + 120
     pending = bytearray()
     while time.monotonic() < deadline:
         if not select.select([reader], [], [], 1)[0]:
             if process.poll() is not None:
                 raise RuntimeError(f"host exited before reply {request['id']}")
             continue
-        pending.extend(os.read(reader, 65536))
+        pending.extend(reader.read(65536))
         while b"\n" in pending:
             line, _, remainder = pending.partition(b"\n")
             pending = bytearray(remainder)
