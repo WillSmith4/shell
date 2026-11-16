@@ -1,0 +1,62 @@
+name: Antigravity binary compatibility probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Fetch and verify the audited desktop binary
+        run: |
+          set -euo pipefail
+          mkdir -p .build/agy-probe/input .build/agy-probe/output
+          curl -fL --retry 3 https://github.com/google-antigravity/antigravity-cli/releases/download/1.5.9/agy_cli_mac_arm64.tar.gz -o .build/agy-probe/input/agy.tar.gz
+          echo '51fb8eb7e18c53d4665f0043b761f04f4d0d4b2eb046bac6c2dcbe32473b5b2e  .build/agy-probe/input/agy.tar.gz' | shasum -a 256 -c -
+          tar -xzf .build/agy-probe/input/agy.tar.gz -C .build/agy-probe/input
+      - name: Build a standalone simulator probe
+        run: |
+          set -euo pipefail
+          out="$PWD/.build/agy-probe/output"
+          python3 agy/patch_probe.py .build/agy-probe/input/antigravity "$out/agy" > "$out/patch.json"
+          sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=17.0 -isysroot "$sdk" -dynamiclib agy/probe_compat.c -Wl,-reexport_framework,Security -install_name @executable_path/libAgyProbe.dylib -o "$out/libAgyProbe.dylib"
+          codesign --force --sign - "$out/libAgyProbe.dylib"
+          codesign --force --sign - "$out/agy"
+          otool -L "$out/agy" > "$out/dependencies.txt"
+      - name: Run on Simulator without account credentials
+        run: |
+          set -euo pipefail
+          out="$PWD/.build/agy-probe/output"
+          xcrun simctl list devices available -j > "$out/devices.json"
+          device=$(python3 -c 'import json; d=json.load(open(".build/agy-probe/output/devices.json")); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if x["isAvailable"]))')
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b
+          export AGY_PROBE_DEVICE="$device"
+          python3 - <<'PY'
+          import os, pathlib, subprocess
+          out=pathlib.Path('.build/agy-probe/output').resolve()
+          for label,args in [('version',['--version']),('help',['--help'])]:
+              try:
+                  r=subprocess.run(['xcrun','simctl','spawn',os.environ['AGY_PROBE_DEVICE'],str(out/'agy'),*args],capture_output=True,text=True,timeout=90)
+                  text=f'EXIT={r.returncode}\n{r.stdout}\n{r.stderr}'
+                  status=r.returncode
+              except subprocess.TimeoutExpired as e:
+                  text=f'TIMEOUT\n{e.stdout!r}\n{e.stderr!r}'
+                  status=124
+              (out/(label+'.txt')).write_text(text)
+              print(text,flush=True)
+              if status: raise SystemExit(status)
+          PY
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: agy-ios-probe-evidence
+          path: |
+            .build/agy-probe/output/*.txt
+            .build/agy-probe/output/*.json
+          if-no-files-found: ignore
