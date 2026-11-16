@@ -31,6 +31,9 @@ int main(int argc, char **argv) {
             FILE *output = fopen(outName.fileSystemRepresentation, "w");
             if (!input || !tty || !output) return 2;
             ios_setStreams(input, output, stderr);
+            thread_stdin = input;
+            thread_stdout = output;
+            thread_stderr = stderr;
             ios_settty(tty);
             int rc = ios_system("agy");
             if (rc || interactive) { fprintf(stderr,"agy returned %d, interactive %d\n", rc, interactive); return 1; }
@@ -45,6 +48,9 @@ int main(int argc, char **argv) {
             if (n < 3 && fgetc(control) != 'R') return 1;
             ios_settty(NULL);
             ios_setStreams(stdin, stdout, stderr);
+            thread_stdin = stdin;
+            thread_stdout = stdout;
+            thread_stderr = stderr;
             fclose(input); fclose(tty); fclose(output);
         }
     }
