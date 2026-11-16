@@ -32,6 +32,14 @@ jobs:
           codesign --force --sign - "$out/agy"
           python3 agy/patch_probe.py --embedded .build/agy-probe/input/antigravity "$out/AgyEngine" > "$out/embedded.json"
           xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=17.0 -isysroot "$sdk" agy/test_load.c -o "$out/test-load"
+          curl -fLsS --retry 3 https://github.com/holzschu/ios_system/releases/download/v3.0.5/ios_system.xcframework.zip -o "$out/ios_system.zip"
+          echo "d429e68102926f58bedd8e8b7105dcd169478cd6da1cef494a5f468482d1c8f5  $out/ios_system.zip" | shasum -a 256 -c -
+          ditto -x -k "$out/ios_system.zip" "$out/ios-sdk"
+          ditto "$out/ios-sdk/ios_system.xcframework/ios-arm64_x86_64-simulator/ios_system.framework" "$out/ios_system.framework"
+          codesign --force --sign - "$out/ios_system.framework"
+          xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=17.0 -isysroot "$sdk" -dynamiclib agy/probe_thread_exit.c -F"$out" -framework ios_system -Wl,-rpath,@loader_path -Wl,-reexport-lSystem -install_name @loader_path/AgyLibC -o "$out/AgyLibC"
+          codesign --force --sign - "$out/AgyLibC"
+          xcrun install_name_tool -change /usr/lib/libSystem.B.dylib @loader_path/AgyLibC "$out/AgyEngine"
           codesign --force --sign - "$out/AgyEngine"
           codesign --force --sign - "$out/test-load"
           otool -L "$out/agy" > "$out/dependencies.txt"
@@ -51,13 +59,14 @@ jobs:
               ('version','agy',['--version'],'1.5.9'),
               ('help','agy',['--help'],'Usage of agy:'),
               ('load','test-load',[str(out/'AgyEngine')],'AgyEngine loaded and host retained control'),
-              ('return','test-load',[str(out/'AgyEngine'),'--version'],'Host resumed after agy'),
+              ('return','test-load',[str(out/'AgyEngine'),'--version'],'Host resumed after agy 2'),
           ]:
               try:
                   r=subprocess.run(['xcrun','simctl','spawn',os.environ['AGY_PROBE_DEVICE'],str(out/program),*args],capture_output=True,text=True,timeout=90)
                   text=f'EXIT={r.returncode}\n{r.stdout}\n{r.stderr}'
                   status=r.returncode or int(expected not in (r.stdout + r.stderr))
-                  if label == 'return' and '1.5.9' not in r.stdout.splitlines():
+                  if label == 'return' and (r.stdout.splitlines().count('1.5.9') != 2 or
+                                            r.stderr.count('agy calls ios_exit(0), on main thread: 0') != 2):
                       status=1
               except subprocess.TimeoutExpired as e:
                   text=f'TIMEOUT\n{e.stdout!r}\n{e.stderr!r}'
