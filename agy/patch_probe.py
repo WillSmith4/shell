@@ -8,7 +8,7 @@ from embedded_image import library_commands
 
 SHA256 = 'fad3628ad91fe8613a72f074a1c5fde7cd816517788a5b9be96703f7d256741a'
 
-def patch(source, destination, platform, embedded=False):
+def patch(source, destination, platform, embedded=False, tui_loop=False):
     data = bytearray(source.read_bytes())
     if hashlib.sha256(data).hexdigest() != SHA256:
         raise ValueError('Only the audited agy 1.5.9 macOS arm64 binary is accepted')
@@ -16,6 +16,18 @@ def patch(source, destination, platform, embedded=False):
     assert (magic, cpu, filetype) == (0xfeedfacf, 0x100000c, 2)
     commands = []
     changes = []
+    if tui_loop:
+        if not embedded:
+            raise ValueError('The TUI reentry experiment requires the isolated embedded host')
+        # main.main already owns the Go runtime and in-process server. After the
+        # original UI returns, reuse its existing argument setup and call site.
+        # No extra Go frame or runtime initialization is introduced. This probe
+        # intentionally loops; it does not implement returning to the app shell.
+        at = 0x103229ce4 - 0x100000000
+        if data[at:at + 4] != bytes.fromhex('e00342f9'):
+            raise ValueError('Unexpected instruction following MaybeLaunchCLI')
+        struct.pack_into('<I', data, at, 0x14000000 | ((-0x38 // 4) & 0x03ffffff))
+        changes.append('Experimental loop through original MaybeLaunchCLI without restarting Go')
     signature_offset = None
     offset = 32
     for _ in range(count):
@@ -63,5 +75,6 @@ if __name__ == '__main__':
     p.add_argument('destination', type=Path)
     p.add_argument('--platform', type=int, choices=[2, 7], default=7)
     p.add_argument('--embedded', action='store_true')
+    p.add_argument('--tui-loop', action='store_true')
     a = p.parse_args()
-    patch(a.source, a.destination, a.platform, a.embedded)
+    patch(a.source, a.destination, a.platform, a.embedded, a.tui_loop)

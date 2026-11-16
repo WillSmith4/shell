@@ -40,6 +40,8 @@ jobs:
           xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=17.0 -isysroot "$sdk" -dynamiclib agy/probe_thread_exit.c -F"$out" -framework ios_system -Wl,-rpath,@loader_path -Wl,-reexport-lSystem -install_name @loader_path/AgyLibC -o "$out/AgyLibC"
           codesign --force --sign - "$out/AgyLibC"
           codesign --force --sign - "$out/AgyEngine"
+          python3 agy/patch_probe.py --embedded --tui-loop .build/agy-probe/input/antigravity "$out/AgyEngineTUI" > "$out/tui-reentry-patch.json"
+          codesign --force --sign - "$out/AgyEngineTUI"
           codesign --force --sign - "$out/test-load"
           otool -L "$out/agy" > "$out/dependencies.txt"
       - name: Boot Simulator
@@ -53,6 +55,9 @@ jobs:
           echo "AGY_PROBE_DEVICE=$device" >> "$GITHUB_ENV"
       - name: Exercise the original TUI on a terminal without credentials
         run: python3 agy/test_tui.py "$AGY_PROBE_DEVICE" .build/agy-probe/output
+      - name: Reopen the original TUI without restarting Go
+        if: ${{ !cancelled() && env.AGY_PROBE_DEVICE != '' }}
+        run: python3 agy/test_tui.py "$AGY_PROBE_DEVICE" .build/agy-probe/output --repeat-tui
       - name: Verify ACP requests on one embedded runtime without credentials
         if: ${{ !cancelled() && env.AGY_PROBE_DEVICE != '' }}
         run: python3 agy/test_acp.py "$AGY_PROBE_DEVICE" .build/agy-probe/output
