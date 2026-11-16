@@ -6,11 +6,19 @@
 
 extern void ios_exit(int status) __attribute__((noreturn));
 
+// Go may redirect stderr before exiting. Retain the original diagnostic stream
+// in the isolated test host so the exit and command thread IDs can be compared.
+static int diagnostics = -1;
+__attribute__((constructor)) static void retain_diagnostics(void) {
+    diagnostics = dup(STDERR_FILENO);
+}
+
 static void finish_command(int status) __attribute__((noreturn));
 static void finish_command(int status) {
-    fprintf(stderr, "agy calls ios_exit(%d), on main thread: %d\n",
-            status, pthread_main_np());
-    fflush(stderr);
+    uint64_t tid = 0;
+    pthread_threadid_np(NULL, &tid);
+    dprintf(diagnostics, "agy calls ios_exit(%d), on main thread: %d, exit thread %llu\n",
+            status, pthread_main_np(), (unsigned long long)tid);
     ios_exit(status);
 }
 

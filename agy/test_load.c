@@ -8,10 +8,14 @@
 struct invocation {
     void (*start)(int, char **);
     char **argv;
+    FILE *log;
 };
 
 static void *run_command(void *arg) {
     struct invocation *command = arg;
+    uint64_t tid = 0;
+    pthread_threadid_np(NULL, &tid);
+    fprintf(command->log, "Command thread %llu\n", (unsigned long long)tid);
     command->start(2, command->argv);
     return NULL;
 }
@@ -50,7 +54,7 @@ int main(int argc, char **argv, char **envp) {
         startup[count + 4] = argv[1];
         fprintf(host_log, "Host entering agy\n");
         fflush(stdout);
-        struct invocation command = {start, startup};
+        struct invocation command = {start, startup, host_log};
         for (int attempt = 1; attempt <= (acp ? 1 : 2); ++attempt) {
             pthread_t worker;
             fprintf(host_log, "Starting agy %d\n", attempt);
