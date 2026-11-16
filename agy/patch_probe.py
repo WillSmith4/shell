@@ -8,7 +8,7 @@ from embedded_image import library_commands
 
 SHA256 = 'fad3628ad91fe8613a72f074a1c5fde7cd816517788a5b9be96703f7d256741a'
 
-def patch(source, destination, platform, embedded=False, tui_loop=False):
+def patch(source, destination, platform, embedded=False, tui_loop=False, tui_gate=False):
     data = bytearray(source.read_bytes())
     if hashlib.sha256(data).hexdigest() != SHA256:
         raise ValueError('Only the audited agy 1.5.9 macOS arm64 binary is accepted')
@@ -16,6 +16,23 @@ def patch(source, destination, platform, embedded=False, tui_loop=False):
     assert (magic, cpu, filetype) == (0xfeedfacf, 0x100000c, 2)
     commands = []
     changes = []
+    if tui_gate:
+        if not embedded or tui_loop:
+            raise ValueError('TUI gate requires embedded mode without the immediate-loop experiment')
+        at = 0x103229ce4 - 0x100000000
+        expected = bytes.fromhex('e00342f9e1031faac1bb37973b0c05b0')
+        if data[at:at + 16] != expected:
+            raise ValueError('Unexpected TUI-return instructions')
+        # Reuse the original main frame and its existing call-site metadata.
+        # syscall.Kill(INT_MIN, 0) is intercepted only by this engine's AgyLibC;
+        # it parks the Go syscall until the host requests another invocation.
+        call_pc = 0x103229cec
+        kill_pc = 0x1000a3840
+        instructions = [0x52b00000, 0xaa1f03e1,
+                        0x94000000 | (((kill_pc - call_pc) // 4) & 0x03ffffff),
+                        0x14000000 | (((0x103229cac - 0x103229cf0) // 4) & 0x03ffffff)]
+        struct.pack_into('<4I', data, at, *instructions)
+        changes.append('Experimental host-controlled TUI rendezvous in the existing Go runtime')
     if tui_loop:
         if not embedded:
             raise ValueError('The TUI reentry experiment requires the isolated embedded host')
@@ -76,5 +93,6 @@ if __name__ == '__main__':
     p.add_argument('--platform', type=int, choices=[2, 7], default=7)
     p.add_argument('--embedded', action='store_true')
     p.add_argument('--tui-loop', action='store_true')
+    p.add_argument('--tui-gate', action='store_true')
     a = p.parse_args()
-    patch(a.source, a.destination, a.platform, a.embedded, a.tui_loop)
+    patch(a.source, a.destination, a.platform, a.embedded, a.tui_loop, a.tui_gate)

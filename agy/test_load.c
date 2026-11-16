@@ -25,11 +25,17 @@ static void *run_command(void *arg) {
 
 int main(int argc, char **argv, char **envp) {
     int acp = argc == 5 && strcmp(argv[2], "acp") == 0;
-    int tui = argc == 4 && strcmp(argv[2], "tui") == 0;
+    int gate = argc == 5 && strcmp(argv[2], "tui-gate") == 0;
+    int tui = gate || (argc == 4 && strcmp(argv[2], "tui") == 0);
     if (!acp && !tui && argc != 2 && (argc != 3 || strcmp(argv[2], "--version"))) return 2;
     FILE *host_log = fdopen(dup(STDERR_FILENO), "w");
     if (!host_log) return 1;
     setvbuf(host_log, NULL, _IONBF, 0);
+    int original[3];
+    for (int fd = 0; fd < 3; ++fd) {
+        original[fd] = dup(fd);
+        if (original[fd] < 0) return 1;
+    }
     // Only this disposable host lends its process stdio to the Go executable.
     if (acp && (!freopen(argv[3], "r", stdin) || !freopen(argv[4], "w", stdout))) {
         perror("ACP test pipes");
@@ -73,6 +79,43 @@ int main(int argc, char **argv, char **envp) {
         fprintf(host_log, "Host entering agy\n");
         fflush(stdout);
         struct invocation command = {start, engine_argc, startup, host_log};
+        if (gate) {
+            int (*wait_ui)(unsigned, unsigned) = dlsym(engine, "agy_probe_wait_ui");
+            int (*resume_ui)(void) = dlsym(engine, "agy_probe_resume_ui");
+            FILE *control = fopen(argv[4], "r");
+            if (!wait_ui || !resume_ui || !control) {
+                fprintf(host_log, "Missing UI rendezvous: %s\n", dlerror());
+                return 1;
+            }
+            pthread_t worker;
+            if (pthread_create(&worker, NULL, run_command, &command)) return 1;
+            pthread_detach(worker);
+            for (unsigned attempt = 1; attempt <= 3; ++attempt) {
+                int result = wait_ui(attempt, 120);
+                if (result) {
+                    fprintf(host_log, "UI return timed out/error %d on attempt %u\n", result, attempt);
+                    return 1;
+                }
+                for (int fd = 0; fd < 3; ++fd)
+                    if (dup2(original[fd], fd) < 0) return 1;
+                // Real host-side work after UI cleanup and descriptor restoration.
+                char cwd[4096];
+                if (!getcwd(cwd, sizeof(cwd))) return 1;
+                printf("HOST-COMMAND-OK %u\n", attempt);
+                fflush(stdout);
+                if (attempt == 3) break;
+                if (fgetc(control) != 'R') return 1;
+                int terminal = open(argv[3], O_RDWR);
+                if (terminal < 0) return 1;
+                for (int fd = 0; fd < 3; ++fd)
+                    if (dup2(terminal, fd) < 0) return 1;
+                if (terminal > 2) close(terminal);
+                if (resume_ui()) return 1;
+            }
+            // Only the disposable test host terminates here. An app would keep
+            // this engine parked and retain the startup storage for its lifetime.
+            return 0;
+        }
         for (int attempt = 1; attempt <= ((acp || tui) ? 1 : 2); ++attempt) {
             pthread_t worker;
             fprintf(host_log, "Starting agy %d\n", attempt);

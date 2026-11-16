@@ -37,11 +37,13 @@ jobs:
           ditto -x -k "$out/ios_system.zip" "$out/ios-sdk"
           ditto "$out/ios-sdk/ios_system.xcframework/ios-arm64_x86_64-simulator/ios_system.framework" "$out/ios_system.framework"
           codesign --force --sign - "$out/ios_system.framework"
-          xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=17.0 -isysroot "$sdk" -dynamiclib agy/probe_thread_exit.c -F"$out" -framework ios_system -Wl,-rpath,@loader_path -Wl,-reexport-lSystem -install_name @loader_path/AgyLibC -o "$out/AgyLibC"
+          xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=17.0 -isysroot "$sdk" -dynamiclib agy/probe_thread_exit.c agy/probe_ui_gate.c -F"$out" -framework ios_system -Wl,-rpath,@loader_path -Wl,-reexport-lSystem -install_name @loader_path/AgyLibC -o "$out/AgyLibC"
           codesign --force --sign - "$out/AgyLibC"
           codesign --force --sign - "$out/AgyEngine"
           python3 agy/patch_probe.py --embedded --tui-loop .build/agy-probe/input/antigravity "$out/AgyEngineTUI" > "$out/tui-reentry-patch.json"
           codesign --force --sign - "$out/AgyEngineTUI"
+          python3 agy/patch_probe.py --embedded --tui-gate .build/agy-probe/input/antigravity "$out/AgyEngineGate" > "$out/tui-gate-patch.json"
+          codesign --force --sign - "$out/AgyEngineGate"
           codesign --force --sign - "$out/test-load"
           otool -L "$out/agy" > "$out/dependencies.txt"
       - name: Boot Simulator
@@ -53,7 +55,10 @@ jobs:
           xcrun simctl boot "$device" || true
           xcrun simctl bootstatus "$device" -b
           echo "AGY_PROBE_DEVICE=$device" >> "$GITHUB_ENV"
+      - name: Return to the host between three original TUI invocations
+        run: python3 agy/test_ui_gate.py "$AGY_PROBE_DEVICE" .build/agy-probe/output
       - name: Exercise the original TUI on a terminal without credentials
+        if: ${{ !cancelled() && env.AGY_PROBE_DEVICE != '' }}
         run: python3 agy/test_tui.py "$AGY_PROBE_DEVICE" .build/agy-probe/output
       - name: Reopen the original TUI without restarting Go
         if: ${{ !cancelled() && env.AGY_PROBE_DEVICE != '' }}
