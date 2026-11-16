@@ -30,6 +30,10 @@ jobs:
           xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=17.0 -isysroot "$sdk" -dynamiclib agy/probe_compat.c -Wl,-reexport_framework,Security -install_name @executable_path/libAgyProbe.dylib -o "$out/libAgyProbe.dylib"
           codesign --force --sign - "$out/libAgyProbe.dylib"
           codesign --force --sign - "$out/agy"
+          python3 agy/patch_probe.py --embedded .build/agy-probe/input/antigravity "$out/AgyEngine" > "$out/embedded.json"
+          xcrun --sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=17.0 -isysroot "$sdk" agy/test_load.c -o "$out/test-load"
+          codesign --force --sign - "$out/AgyEngine"
+          codesign --force --sign - "$out/test-load"
           otool -L "$out/agy" > "$out/dependencies.txt"
       - name: Run on Simulator without account credentials
         run: |
@@ -43,11 +47,15 @@ jobs:
           python3 - <<'PY'
           import os, pathlib, subprocess
           out=pathlib.Path('.build/agy-probe/output').resolve()
-          for label,args in [('version',['--version']),('help',['--help'])]:
+          for label,program,args,expected in [
+              ('version','agy',['--version'],'1.5.9'),
+              ('help','agy',['--help'],'Usage of agy:'),
+              ('load','test-load',[str(out/'AgyEngine')],'AgyEngine loaded and host retained control'),
+          ]:
               try:
-                  r=subprocess.run(['xcrun','simctl','spawn',os.environ['AGY_PROBE_DEVICE'],str(out/'agy'),*args],capture_output=True,text=True,timeout=90)
+                  r=subprocess.run(['xcrun','simctl','spawn',os.environ['AGY_PROBE_DEVICE'],str(out/program),*args],capture_output=True,text=True,timeout=90)
                   text=f'EXIT={r.returncode}\n{r.stdout}\n{r.stderr}'
-                  status=r.returncode
+                  status=r.returncode or int(expected not in (r.stdout + r.stderr))
               except subprocess.TimeoutExpired as e:
                   text=f'TIMEOUT\n{e.stdout!r}\n{e.stderr!r}'
                   status=124
