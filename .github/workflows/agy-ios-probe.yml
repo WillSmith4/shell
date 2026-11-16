@@ -1,6 +1,9 @@
 name: Antigravity binary compatibility probe
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/agy-ios-port]
+    paths: [agy/**, .github/workflows/agy-ios-probe.yml]
 permissions:
   contents: read
 jobs:
