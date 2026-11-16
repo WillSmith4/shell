@@ -25,7 +25,8 @@ static void *run_command(void *arg) {
 
 int main(int argc, char **argv, char **envp) {
     int acp = argc == 5 && strcmp(argv[2], "acp") == 0;
-    int gate = argc == 5 && strcmp(argv[2], "tui-gate") == 0;
+    int pipes = argc == 6 && strcmp(argv[2], "pipe-gate") == 0;
+    int gate = pipes || (argc == 5 && strcmp(argv[2], "tui-gate") == 0);
     int tui = gate || (argc == 4 && strcmp(argv[2], "tui") == 0);
     if (!acp && !tui && argc != 2 && (argc != 3 || strcmp(argv[2], "--version"))) return 2;
     FILE *host_log = fdopen(dup(STDERR_FILENO), "w");
@@ -41,7 +42,12 @@ int main(int argc, char **argv, char **envp) {
         perror("ACP test pipes");
         return 1;
     }
-    if (tui) {
+    int input = -1, output = -1;
+    if (pipes) {
+        input = open(argv[3], O_RDONLY);
+        output = open(argv[5], O_WRONLY);
+        if (input < 0 || output < 0 || dup2(input, 0) < 0 || dup2(output, 1) < 0) return 1;
+    } else if (tui) {
         setsid();
         int terminal = open(argv[3], O_RDWR);
         if (terminal < 0) return 1;
@@ -82,10 +88,15 @@ int main(int argc, char **argv, char **envp) {
         if (gate) {
             int (*wait_ui)(unsigned, unsigned) = dlsym(engine, "agy_probe_wait_ui");
             int (*resume_ui)(void) = dlsym(engine, "agy_probe_resume_ui");
+            void (*pipe_terminal)(int, unsigned short, unsigned short) = dlsym(engine, "agy_probe_pipe_terminal");
             FILE *control = fopen(argv[4], "r");
             if (!wait_ui || !resume_ui || !control) {
                 fprintf(host_log, "Missing UI rendezvous: %s\n", dlerror());
                 return 1;
+            }
+            if (pipes) {
+                if (!pipe_terminal) return 1;
+                pipe_terminal(1, 100, 32);
             }
             pthread_t worker;
             if (pthread_create(&worker, NULL, run_command, &command)) return 1;
@@ -96,6 +107,9 @@ int main(int argc, char **argv, char **envp) {
                     fprintf(host_log, "UI return timed out/error %d on attempt %u\n", result, attempt);
                     return 1;
                 }
+                int engine_errors = dup(2);
+                if (engine_errors < 0) return 1;
+                if (pipes) pipe_terminal(0, 0, 0);
                 for (int fd = 0; fd < 3; ++fd)
                     if (dup2(original[fd], fd) < 0) return 1;
                 // Real host-side work after UI cleanup and descriptor restoration.
@@ -103,13 +117,22 @@ int main(int argc, char **argv, char **envp) {
                 if (!getcwd(cwd, sizeof(cwd))) return 1;
                 printf("HOST-COMMAND-OK %u\n", attempt);
                 fflush(stdout);
-                if (attempt == 3) break;
+                if (attempt == 3) { close(engine_errors); break; }
                 if (fgetc(control) != 'R') return 1;
-                int terminal = open(argv[3], O_RDWR);
-                if (terminal < 0) return 1;
-                for (int fd = 0; fd < 3; ++fd)
-                    if (dup2(terminal, fd) < 0) return 1;
-                if (terminal > 2) close(terminal);
+                if (pipes) {
+                    if (dup2(input, 0) < 0 || dup2(output, 1) < 0) return 1;
+                    pipe_terminal(1, 100, 32);
+                } else {
+                    int terminal = open(argv[3], O_RDWR);
+                    if (terminal < 0) return 1;
+                    for (int fd = 0; fd < 2; ++fd)
+                        if (dup2(terminal, fd) < 0) return 1;
+                    if (terminal > 2) close(terminal);
+                }
+                // Go redirected its diagnostics to a log file. Preserve that
+                // destination across invocations instead of displaying logs.
+                if (dup2(engine_errors, 2) < 0) return 1;
+                close(engine_errors);
                 if (resume_ui()) return 1;
             }
             // Only the disposable test host terminates here. An app would keep
