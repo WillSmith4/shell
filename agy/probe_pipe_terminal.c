@@ -15,11 +15,17 @@ static struct termios mode;
 static struct stat streams[2];
 static int captured[2];
 
+static int system_fstat(int fd, struct stat *metadata) {
+    int (*real_fstat)(int, struct stat *) = dlsym(RTLD_NEXT, "fstat");
+    if (!real_fstat) { errno = ENOSYS; return -1; }
+    return real_fstat(fd, metadata);
+}
+
 void agy_probe_pipe_terminal(int active, unsigned short columns, unsigned short rows) {
     pthread_mutex_lock(&lock);
     enabled = active;
     if (active) {
-        for (int fd = 0; fd < 2; ++fd) captured[fd] = fstat(fd, &streams[fd]) == 0;
+        for (int fd = 0; fd < 2; ++fd) captured[fd] = system_fstat(fd, &streams[fd]) == 0;
         memset(&mode, 0, sizeof(mode));
         mode.c_iflag = ICRNL;
         mode.c_oflag = OPOST | ONLCR;
@@ -32,14 +38,40 @@ void agy_probe_pipe_terminal(int active, unsigned short columns, unsigned short 
     pthread_mutex_unlock(&lock);
 }
 
+static int matches_terminal(const struct stat *candidate) {
+    for (int i = 0; i < 2; ++i)
+        if (captured[i] && candidate->st_dev == streams[i].st_dev &&
+            candidate->st_ino == streams[i].st_ino &&
+            (candidate->st_mode & S_IFMT) == (streams[i].st_mode & S_IFMT)) return 1;
+    return 0;
+}
+
 static int terminal_alias(int fd) {
     struct stat candidate;
-    if (fstat(fd, &candidate)) return 0;
-    for (int i = 0; i < 2; ++i)
-        if (captured[i] && candidate.st_dev == streams[i].st_dev &&
-            candidate.st_ino == streams[i].st_ino &&
-            (candidate.st_mode & S_IFMT) == (streams[i].st_mode & S_IFMT)) return 1;
+    return system_fstat(fd, &candidate) == 0 && matches_terminal(&candidate);
+}
+
+int fstat(int fd, struct stat *metadata) {
+    int result = system_fstat(fd, metadata);
+    if (result) return result;
+    pthread_mutex_lock(&lock);
+    // main.readStdinPrompt checks ModeCharDevice, not isatty, before deciding
+    // whether to consume stdin to EOF as a noninteractive prompt. Only the
+    // captured interactive streams have terminal identity inside this engine.
+    if (enabled && matches_terminal(metadata))
+        metadata->st_mode = (metadata->st_mode & ~S_IFMT) | S_IFCHR;
+    pthread_mutex_unlock(&lock);
     return 0;
+}
+
+int isatty(int fd) {
+    pthread_mutex_lock(&lock);
+    int result = enabled && terminal_alias(fd);
+    pthread_mutex_unlock(&lock);
+    if (result) return 1;
+    int (*real_isatty)(int) = dlsym(RTLD_NEXT, "isatty");
+    if (!real_isatty) { errno = ENOSYS; return 0; }
+    return real_isatty(fd);
 }
 
 int ioctl(int fd, unsigned long request, ...) {
