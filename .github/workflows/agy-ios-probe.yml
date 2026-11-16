@@ -51,9 +51,13 @@ jobs:
           xcrun simctl boot "$device" || true
           xcrun simctl bootstatus "$device" -b
           echo "AGY_PROBE_DEVICE=$device" >> "$GITHUB_ENV"
+      - name: Exercise the original TUI on a terminal without credentials
+        run: python3 agy/test_tui.py "$AGY_PROBE_DEVICE" .build/agy-probe/output
       - name: Verify ACP requests on one embedded runtime without credentials
+        if: ${{ !cancelled() && env.AGY_PROBE_DEVICE != '' }}
         run: python3 agy/test_acp.py "$AGY_PROBE_DEVICE" .build/agy-probe/output
       - name: Verify native process entry and repeated invocation
+        if: ${{ !cancelled() && env.AGY_PROBE_DEVICE != '' }}
         run: |
           python3 - <<'PY'
           import os, pathlib, subprocess
